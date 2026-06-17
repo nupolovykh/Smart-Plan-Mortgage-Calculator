@@ -1,0 +1,28 @@
+# PHP
+vendor/
+
+# Database (local data - do not commit)
+database.sqlite
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Dev container (optional)
+# .devcontainer/
