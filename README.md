@@ -1,54 +1,125 @@
 # Smart Plan Mortgage Calculator
 
-A mortgage calculator application with PHP backend and React frontend.
+PHP + React + SQLite mortgage application validator with REST API.
 
-## Project Structure
+## 🚀 Quick Start (DevContainer - Recommended)
 
-```
-.
-├── composer.json          # PHP dependencies
-├── composer.lock          # Locked PHP dependency versions
-├── database/
-│   ├── init.sql           # Database schema initialization
-│   └── seed.sql           # Sample seed data
-├── src/
-│   ├── api.php            # PHP API entry point
-│   └── MortgageValidator.php
-├── tests/
-│   └── MortgageValidatorTest.php
-└── frontend/              # React + Vite + TypeScript frontend
-    ├── package.json
-    └── ...
-```
-
-## Getting Started After Cloning
-
-### 1. Set up the database
+This project includes a **fully automated DevContainer** for VS Code.
 
 ```bash
+git clone <repo-url>
+cd phpcalculator
+code .
+# Click: "Reopen in Container" (Cmd+Shift+P → Dev Containers: Reopen in Container)
+```
+
+The container automatically:
+- ✅ Installs PHP 8.3 + Composer dependencies (`composer install`)
+- ✅ Installs Node.js + frontend dependencies (`npm install`)
+- ✅ Creates SQLite database with schema
+- ✅ Loads seed data
+
+## 🛠️ Manual Setup (Without DevContainer)
+
+```bash
+# 1. Prerequisites: PHP 8.3+, Node.js 20+, Composer, SQLite3
+
+# 2. Install PHP dependencies
+composer install
+
+# 3. Install frontend dependencies
+cd frontend && npm install && cd ..
+
+# 4. Initialize database
 sqlite3 database.sqlite < database/init.sql
 sqlite3 database.sqlite < database/seed.sql
 ```
 
-### 2. Install PHP dependencies
+## 🏃 Running the Application
 
+Start both servers in separate terminals:
+
+### Terminal 1 — PHP Backend (API)
 ```bash
-composer install
+php -S 0.0.0.0:8080 -t src
 ```
 
-### 3. Install frontend dependencies
-
+### Terminal 2 — React Frontend (Vite dev server)
 ```bash
-cd frontend && npm install
+cd frontend
+npm run dev
 ```
 
-### 4. Start the PHP backend
+Open http://localhost:5173 in your browser.
+
+## 🧪 Running Tests
 
 ```bash
-php -S 0.0.0.0:8080 -t src/
+# PHPUnit tests
+composer test
+
+# Or directly:
+vendor/bin/phpunit
 ```
 
-### 5. Start the frontend dev server (in another terminal)
-
 ```bash
-cd frontend && npm run dev
+# Frontend lint
+cd frontend && npm run lint
+```
+
+## 🗄️ Database
+
+The SQLite database (`database.sqlite`) is **local** and not tracked in git.
+
+| File | Purpose |
+|------|---------|
+| `database/init.sql` | Schema creation (run once) |
+| `database/seed.sql` | Sample data (areas, promos, payment methods) |
+
+To reset: delete `database.sqlite` and re-run both SQL files.
+
+## 📁 Project Structure
+
+```
+.
+├── .devcontainer/          # VS Code DevContainer configuration
+│   ├── devcontainer.json   # Container definition (PHP 8.3, Node.js)
+│   ├── post-create.sh      # Auto-setup script (runs on container create)
+│   ├── devcontainer-lock.json
+│   └── xdebug.ini
+├── .github/workflows/      # CI/CD pipeline (GitHub Actions)
+│   └── ci.yml             # PHP tests + Frontend lint/build + DB check
+├── database/               # SQL schema and seed data
+│   ├── init.sql
+│   └── seed.sql
+├── frontend/               # React + TypeScript + Vite
+│   ├── src/
+│   ├── .gitignore
+│   ├── package.json
+│   └── vite.config.ts
+├── src/                    # PHP backend
+│   ├── api.php             # REST API endpoints
+│   └── MortgageValidator.php
+├── tests/                  # PHPUnit tests
+│   └── MortgageValidatorTest.php
+├── composer.json
+├── phpunit.xml
+└── .gitignore
+```
+
+## 🔄 CI/CD Pipeline
+
+On every push/PR to `main`/`master`/`develop`, GitHub Actions runs:
+
+| Job | What it checks |
+|-----|---------------|
+| **PHP Tests** | `vendor/bin/phpunit` — validates mortgage validation logic |
+| **Frontend** | `npm run lint` + `npm run build` — code quality + compilation |
+| **Database** | Schema creation + seed data loading — ensures DB scripts work |
+
+## 🐳 DevContainer Details
+
+- **Base image**: `mcr.microsoft.com/devcontainers/php:8.3`
+- **PHP**: 8.3 with Xdebug
+- **Node.js**: 20 (via devcontainer feature)
+- **Extensions**: PHP Debug, Claude Code, Claude Dev

@@ -1,0 +1,18 @@
+{
+    "name": "PHP & Podman Dev Environment",
+    "image": "mcr.microsoft.com/devcontainers/php:8.3",
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "xdebug.php-debug",
+                "Anthropic.claude-code",
+                "saoudrizwan.claude-dev"
+            ]
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/node:2.0.0": {},
+        "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+    }
+}
