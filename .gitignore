@@ -6,6 +6,7 @@ database.sqlite
 
 # IDE / Editor (project-level dev config is in .devcontainer/)
 .vscode/
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo

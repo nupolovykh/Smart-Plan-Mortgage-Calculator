@@ -6,13 +6,17 @@
         "vscode": {
             "extensions": [
                 "xdebug.php-debug",
-                "Anthropic.claude-code",
-                "saoudrizwan.claude-dev"
+                "anthropic.claude-code",
+                "saoudrizwan.claude-dev",
+                "bmewburn.vscode-intelephense-client",
+                "dbaeumer.vscode-eslint",
+                "github.vscode-github-actions",
+                "mrmlnc.vscode-apache"
             ]
         }
     },
     "features": {
-        "ghcr.io/devcontainers/features/node:2.0.0": {},
+        "ghcr.io/devcontainers/features/node:2.1.0": {},
         "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
     }
 }
