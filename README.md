@@ -41,7 +41,7 @@ Start both servers in separate terminals:
 
 ### Terminal 1 — PHP Backend (API)
 ```bash
-php -S 0.0.0.0:8080 -t src
+php -S 0.0.0.0:8000 src/api.php
 ```
 
 ### Terminal 2 — React Frontend (Vite dev server)

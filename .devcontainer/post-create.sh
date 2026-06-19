@@ -5,8 +5,17 @@ echo "=================================="
 echo " Post-creation setup starting..."
 echo "=================================="
 
+# -- SQLite3 --
+echo "[1/5] Ensuring sqlite3 is installed..."
+if ! command -v sqlite3 &> /dev/null; then
+    sudo apt-get update && sudo apt-get install -y sqlite3
+    echo "  ✓ sqlite3 installed"
+else
+    echo "  ✓ sqlite3 already available"
+fi
+
 # -- PHP dependencies --
-echo "[1/4] Installing PHP dependencies (composer)..."
+echo "[2/5] Installing PHP dependencies (composer)..."
 if [ -f composer.json ]; then
     composer install --no-interaction --prefer-dist
     echo "  ✓ composer install complete"
@@ -15,7 +24,7 @@ else
 fi
 
 # -- Frontend dependencies --
-echo "[2/4] Installing frontend dependencies (npm)..."
+echo "[3/5] Installing frontend dependencies (npm)..."
 if [ -f frontend/package.json ]; then
     cd frontend
     npm install
@@ -26,7 +35,7 @@ else
 fi
 
 # -- Database initialization --
-echo "[3/4] Initializing SQLite database..."
+echo "[4/5] Initializing SQLite database..."
 if [ -f database/init.sql ]; then
     sqlite3 database.sqlite < database/init.sql
     echo "  ✓ database schema created"
@@ -35,7 +44,7 @@ else
 fi
 
 # -- Seed data --
-echo "[4/4] Loading seed data..."
+echo "[5/5] Loading seed data..."
 if [ -f database/seed.sql ]; then
     sqlite3 database.sqlite < database/seed.sql
     echo "  ✓ seed data loaded"
@@ -51,5 +60,5 @@ echo ""
 echo "Commands you can run:"
 echo "  composer test        - Run PHPUnit tests"
 echo "  cd frontend && npm run dev - Start Vite dev server"
-echo "  php -S 0.0.0.0:8080 -t src  - Start PHP built-in server"
+echo "  php -S 0.0.0.0:8000 src/api.php  - Start PHP built-in server"
 echo ""

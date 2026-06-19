@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import './App.css';
 
 interface Area {
@@ -45,8 +45,6 @@ const App: React.FC = () => {
   const [initialPayment, setInitialPayment] = useState<number>(0);
   const [maternalCapital, setMaternalCapital] = useState<number>(0);
   const [mortgageTerm, setMortgageTerm] = useState<number>(10);
-  const [calculatedPrice, setCalculatedPrice] = useState<number>(0);
-  const [monthlyPayment, setMonthlyPayment] = useState<number>(0);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -96,29 +94,6 @@ const App: React.FC = () => {
     return parseFloat(payment.toFixed(2));
   }, []);
 
-  const fetchDatabaseTables = useCallback(async () => {
-    try {
-      const areasResponse = await fetch(`${API_BASE}/api/areas`);
-      const areasData: Area[] = await areasResponse.json();
-
-      const promosResponse = await fetch(`${API_BASE}/api/promos`);
-      const promosData: Promo[] = await promosResponse.json();
-
-      const paymentMethodsResponse = await fetch(`${API_BASE}/api/payment_methods`);
-      const paymentMethodsData: PaymentMethod[] = await paymentMethodsResponse.json();
-
-      setAreas(areasData);
-      setPromos(promosData);
-      setPaymentMethods(paymentMethodsData);
-
-      if (areasData.length > 0 && !selectedArea) setSelectedArea(areasData[0]);
-      if (paymentMethodsData.length > 0 && !selectedPaymentMethod) setSelectedPaymentMethod(paymentMethodsData[0]);
-    } catch (error) {
-      console.error('Error fetching database tables:', error);
-      setErrorMessage('Failed to fetch initial database tables.');
-    }
-  }, [selectedArea, selectedPaymentMethod]);
-
   const fetchRequestsList = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/api/requests`);
@@ -130,25 +105,58 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchDatabaseTables();
-    fetchRequestsList();
-  }, [fetchDatabaseTables, fetchRequestsList]);
+    let isMounted = true;
 
-  useEffect(() => {
-    if (selectedArea) {
-      setCalculatedPrice(calculatePrice(selectedArea, promos));
-    }
+    (async () => {
+      try {
+        // Fetch everything in parallel
+        const [areasRes, promosRes, paymentMethodsRes, requestsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/areas`),
+          fetch(`${API_BASE}/api/promos`),
+          fetch(`${API_BASE}/api/payment_methods`),
+          fetch(`${API_BASE}/api/requests`),
+        ]);
+
+        const [areasData, promosData, paymentMethodsData, requestsData] = await Promise.all([
+          areasRes.json(),
+          promosRes.json(),
+          paymentMethodsRes.json(),
+          requestsRes.json(),
+        ]);
+
+        if (!isMounted) return;
+
+        setAreas(areasData);
+        setPromos(promosData);
+        setPaymentMethods(paymentMethodsData);
+        setRequestsList(requestsData);
+
+        // Only set defaults if nothing selected yet
+        setSelectedArea(prev => prev ?? (areasData.length > 0 ? areasData[0] : null));
+        setSelectedPaymentMethod(prev => prev ?? (paymentMethodsData.length > 0 ? paymentMethodsData[0] : null));
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+        if (!isMounted) return;
+        setErrorMessage('Failed to fetch initial database tables.');
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []); // run once on mount
+
+  const calculatedPrice = useMemo(() => {
+    return selectedArea ? calculatePrice(selectedArea, promos) : 0;
   }, [selectedArea, promos, calculatePrice]);
 
-  useEffect(() => {
-    setMonthlyPayment(
-      calculateMonthlyPaymentValue(
-        calculatedPrice,
-        initialPayment,
-        maternalCapital,
-        mortgageTerm,
-        selectedPaymentMethod
-      )
+  const monthlyPayment = useMemo(() => {
+    return calculateMonthlyPaymentValue(
+      calculatedPrice,
+      initialPayment,
+      maternalCapital,
+      mortgageTerm,
+      selectedPaymentMethod
     );
   }, [calculatedPrice, initialPayment, maternalCapital, mortgageTerm, selectedPaymentMethod, calculateMonthlyPaymentValue]);
 
