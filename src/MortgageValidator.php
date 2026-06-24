@@ -5,8 +5,8 @@ namespace App;
 class MortgageValidator
 {
     /**
-     * Валидация данных формы.
-     * Возвращает true, если всё верно, либо выбрасывает Exception с описанием ошибки.
+     * Validate form data.
+     * Returns true if data is valid, or throws Exception with error details.
      */
     public function validate(array $requestData, array $area, ?array $promo, array $paymentMethod): bool
     {
@@ -15,7 +15,7 @@ class MortgageValidator
         
         
         if (abs(round($requestData["price"]) - round($expectedPrice)) > 1) {
-            throw new \Exception("Обнаружена подмена цены! Ожидалось: {$expectedPrice}, прилетело: {$requestData["price"]}");
+            throw new \Exception("Price tampering detected! Expected: {$expectedPrice}, received: {$requestData["price"]}");
         }
 
         
@@ -23,7 +23,7 @@ class MortgageValidator
         $loanAmount = $requestData["price"] - $requestData["initial_payment"] - $requestData["maternal_capital"];
         
         if ($loanAmount <= 0) {
-            throw new \Exception("Сумма кредита не может быть нулевой или отрицательной.");
+            throw new \Exception("Loan amount must be greater than zero.");
         }
 
         
@@ -35,14 +35,14 @@ class MortgageValidator
 
         
         if (abs($requestData["monthly_payment"] - $expectedMonthlyPayment) > 2) {
-            throw new \Exception("Неверный ежемесячный платеж! Ожидалось: {$expectedMonthlyPayment}, прилетело: {$requestData["monthly_payment"]}");
+            throw new \Exception("Incorrect monthly payment! Expected: {$expectedMonthlyPayment}, received: {$requestData["monthly_payment"]}");
         }
 
         return true;
     }
 
     /**
-     * Расчет стоимости с учетом скидки
+     * Calculate expected price with discount
      */
     public function calculateExpectedPrice(float $basePrice, ?array $promo): float
     {
@@ -62,7 +62,7 @@ class MortgageValidator
     }
 
     /**
-     * Расчет аннуитетного платежа
+     * Calculate annuity payment
      */
     public function calculateMonthlyPayment(float $loanAmount, float $annualRate, int $years): float
     {
