@@ -51,7 +51,7 @@ class MortgageValidatorTest extends TestCase
         $loanAmount = 2000000.0;
         $annualRate = 8.5; // 8.5%
         $years = 15;
-        $expectedPayment = 19685.18;
+        $expectedPayment = 19694.79;
         $this->assertEquals($expectedPayment, $this->validator->calculateMonthlyPayment($loanAmount, $annualRate, $years));
     }
 
@@ -100,7 +100,7 @@ class MortgageValidatorTest extends TestCase
         $paymentMethod = ["id" => 1, "estimated_rate" => 8.5, "bank_name" => "Test Bank"];
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage("Обнаружена подмена цены!");
+        $this->expectExceptionMessage("Price tampering detected!");
         $this->validator->validate($requestData, $area, $promo, $paymentMethod);
     }
 
@@ -121,7 +121,7 @@ class MortgageValidatorTest extends TestCase
         $paymentMethod = ["id" => 1, "estimated_rate" => 8.5, "bank_name" => "Test Bank"];
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage("Сумма кредита не может быть нулевой или отрицательной.");
+        $this->expectExceptionMessage("Loan amount must be greater than zero.");
         $this->validator->validate($requestData, $area, $promo, $paymentMethod);
     }
 
@@ -142,7 +142,7 @@ class MortgageValidatorTest extends TestCase
         $paymentMethod = ["id" => 1, "estimated_rate" => 8.5, "bank_name" => "Test Bank"];
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage("Неверный ежемесячный платеж!");
+        $this->expectExceptionMessage("Incorrect monthly payment!");
         $this->validator->validate($requestData, $area, $promo, $paymentMethod);
     }
 
