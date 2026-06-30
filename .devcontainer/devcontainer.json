@@ -19,4 +19,7 @@
         "ghcr.io/devcontainers/features/node:2.1.0": {},
         "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
     }
+    // "mounts": [
+    //     "source=claude-code-config,target=/home/node/.claude,type=volume"
+    // ]
 }
