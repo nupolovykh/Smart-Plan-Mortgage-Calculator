@@ -1,13 +1,13 @@
 {
-    "name": "PHP & Podman Dev Environment",
+    "name": "phpcalculator",
     "image": "mcr.microsoft.com/devcontainers/php:8.3",
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "customizations": {
         "vscode": {
             "extensions": [
-                "xdebug.php-debug",
                 "anthropic.claude-code",
                 "saoudrizwan.claude-dev",
+                "xdebug.php-debug",
                 "bmewburn.vscode-intelephense-client",
                 "dbaeumer.vscode-eslint",
                 "github.vscode-github-actions",

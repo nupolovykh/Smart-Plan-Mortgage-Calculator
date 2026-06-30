@@ -1,11 +1,6 @@
 {
     "recommendations": [
-        "xdebug.php-debug",
-        "anthropic.claude-code",
-        "saoudrizwan.claude-dev",
-        "bmewburn.vscode-intelephense-client",
-        "dbaeumer.vscode-eslint",
         "github.vscode-github-actions",
-        "mrmlnc.vscode-apache"
+        "ms-vscode.js-debug-companion"
     ]
 }
