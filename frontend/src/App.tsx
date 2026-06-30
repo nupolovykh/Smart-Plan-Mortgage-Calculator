@@ -49,8 +49,11 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'calculator' | 'requests'>('calculator');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const API_BASE = 'http://localhost:8000';
+  // Use relative URL (Vite proxy forwards /api/* to PHP backend)
+  const API_BASE = '';
 
   const calculatePrice = useCallback((area: Area, allPromos: Promo[]) => {
     let price = area.price;
@@ -138,6 +141,8 @@ const App: React.FC = () => {
         console.error('Error fetching initial data:', error);
         if (!isMounted) return;
         setErrorMessage('Failed to fetch initial database tables.');
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     })();
 
@@ -181,6 +186,7 @@ const App: React.FC = () => {
     };
 
     try {
+      setIsSubmitting(true);
       const response = await fetch(`${API_BASE}/api/integrations/sendForm`, {
         method: 'POST',
         headers: {
@@ -200,6 +206,8 @@ const App: React.FC = () => {
     } catch (error) {
       setErrorMessage('Failed to connect to the API server.');
       console.error('Submission error:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -229,7 +237,12 @@ const App: React.FC = () => {
       {errorMessage && <div className="error-message">{errorMessage}</div>}
       {successMessage && <div className="success-message">{successMessage}</div>}
 
-      {activeTab === 'calculator' ? (
+      {isLoading ? (
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <p className="loading-text">Loading mortgage data...</p>
+        </div>
+      ) : activeTab === 'calculator' ? (
         <div className="calculator-layout">
           <div className="card left-panel">
             <h2>Select Your Plot & Method</h2>
@@ -359,8 +372,8 @@ const App: React.FC = () => {
                 <span className="payment-big">{monthlyPayment.toLocaleString()} RUB / mo</span>
               </div>
             </div>
-            <button className="submit-btn" onClick={handleSubmit}>
-              🚀 Submit Application to DB
+            <button className="submit-btn" onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? '⏳ Submitting...' : '🚀 Submit Application to DB'}
             </button>
           </div>
         </div>

@@ -7,8 +7,49 @@ require_once __DIR__ . '/MortgageValidator.php';
 
 use App\MortgageValidator;
 
-// CORS Headers for React Frontend
-header('Access-Control-Allow-Origin: *');
+// ────────────────────────────────────────────────
+// Environment Configuration (.env support)
+// ────────────────────────────────────────────────
+$envFile = __DIR__ . '/../.env';
+$env = [];
+if (file_exists($envFile)) {
+    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        if (str_contains($line, '=')) {
+            [$key, $value] = explode('=', $line, 2);
+            $key = trim($key);
+            $value = trim($value);
+            $env[$key] = $value;
+            // Also set as environment variable for getenv() access
+            putenv("$key=$value");
+        }
+    }
+}
+
+// Helper to get config value with fallback
+$config = function (string $key, $default = null) use ($env) {
+    return $env[$key] ?? getenv($key) ?: $default;
+};
+
+// ────────────────────────────────────────────────
+// CORS Headers
+// ────────────────────────────────────────────────
+$allowedOrigins = $config('CORS_ALLOWED_ORIGINS', '*');
+if ($allowedOrigins === '*') {
+    header('Access-Control-Allow-Origin: *');
+} else {
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $origins = array_map('trim', explode(',', $allowedOrigins));
+    if (in_array($origin, $origins, true)) {
+        header("Access-Control-Allow-Origin: $origin");
+    } else {
+        header('Access-Control-Allow-Origin: ' . $origins[0]);
+    }
+}
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 
@@ -19,9 +60,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 header('Content-Type: application/json');
 
+// ────────────────────────────────────────────────
+// Database Connection
+// ────────────────────────────────────────────────
+$dbPath = $config('DB_PATH', __DIR__ . '/../database.sqlite');
 try {
-    $db = new PDO('sqlite:' . __DIR__ . '/../database.sqlite');
+    $db = new PDO('sqlite:' . $dbPath);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    // Enable foreign keys
+    $db->exec('PRAGMA foreign_keys = ON');
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode(['status' => 'error', 'message' => 'Database connection failed: ' . $e->getMessage()]);
@@ -83,6 +130,77 @@ if ($requestMethod === 'POST' && strpos($path, 'api/integrations/sendForm') !== 
     // Make promo_id optional/nullable
     if (!array_key_exists('promo_id', $requestData)) {
         $requestData['promo_id'] = null;
+    }
+
+    // Strip whitespace from string fields
+    foreach ($requestData as $key => $value) {
+        if (is_string($value)) {
+            $requestData[$key] = trim($value);
+        }
+    }
+
+    // Add numeric range validation for all numeric fields
+    $numericFields = [
+        'price' => ['min' => 0, 'allow_zero' => false],
+        'initial_payment' => ['min' => 0, 'allow_zero' => true],
+        'maternal_capital' => ['min' => 0, 'allow_zero' => true],
+        'monthly_payment' => ['min' => 0, 'allow_zero' => false],
+        'payment_method_id' => ['min' => 0, 'allow_zero' => false, 'is_int' => true],
+        'realty_id' => ['min' => 0, 'allow_zero' => false, 'is_int' => true],
+        'mortgage_term' => ['min' => 1, 'max' => 50, 'is_int' => true]
+    ];
+
+    foreach ($numericFields as $field => $rules) {
+        $val = $requestData[$field];
+        if (!is_numeric($val)) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => "Field '$field' must be numeric."]);
+            exit();
+        }
+        
+        $numVal = $rules['is_int'] ?? false ? (int)$val : (float)$val;
+        
+        if (($rules['is_int'] ?? false) && (string)$numVal !== (string)$val && (float)$val !== (float)$numVal) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => "Field '$field' must be an integer."]);
+            exit();
+        }
+
+        if (isset($rules['max']) && $numVal > $rules['max']) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => "Field '$field' must not be greater than {$rules['max']}."]);
+            exit();
+        }
+
+        if (isset($rules['min'])) {
+            if ($rules['allow_zero'] ?? false) {
+                if ($numVal < $rules['min']) {
+                    http_response_code(400);
+                    echo json_encode(['status' => 'error', 'message' => "Field '$field' must be greater than or equal to {$rules['min']}."]);
+                    exit();
+                }
+            } else {
+                if ($numVal <= $rules['min']) {
+                    http_response_code(400);
+                    echo json_encode(['status' => 'error', 'message' => "Field '$field' must be greater than {$rules['min']}."]);
+                    exit();
+                }
+            }
+        }
+        
+        // Cast requestData value to proper type
+        $requestData[$field] = $numVal;
+    }
+
+    // Validate promo_id is either null or positive integer
+    if ($requestData['promo_id'] !== null) {
+        $promoId = $requestData['promo_id'];
+        if (!is_numeric($promoId) || (int)$promoId <= 0 || (int)$promoId != $promoId) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => "Field 'promo_id' must be null or a positive integer."]);
+            exit();
+        }
+        $requestData['promo_id'] = (int)$promoId;
     }
 
     $stmt = $db->prepare('SELECT * FROM areas WHERE id = :id');
