@@ -13,7 +13,9 @@ INSERT OR IGNORE INTO promos (id, discount_value, discount_type) VALUES (8, 1500
 INSERT OR IGNORE INTO promos (id, discount_value, discount_type) VALUES (9, 5.0, '%');
 
 -- Payment methods
-INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (1, 8.5, 'СберБанк (Семейная ипотека)', 'https://www.sberbank.ru/portalserver/static/templates/%5BUnique%5Djust_img/images/logo.svg');
-INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (2, 3.0, 'Россельхозбанк (Сельская ипотека)', 'https://www.rshb.ru/images/rshb_logo_new.svg');
-INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (3, 12.0, 'ВТБ (Базовая программа)', 'https://www.vtb.ru/assets/images/logo-vtb.svg');
-INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (4, 9.0, 'Альфа-Банк (Господдержка)', 'https://alfabank.st/media/logo.svg');
+-- Logos are served from frontend/public/logos/ (self-hosted) rather than hotlinked
+-- from bank websites, which change asset paths without notice and 404/403 hotlinks.
+INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (1, 8.5, 'СберБанк (Семейная ипотека)', '/logos/sberbank.svg');
+INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (2, 3.0, 'Россельхозбанк (Сельская ипотека)', '/logos/rosselkhozbank.svg');
+INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (3, 12.0, 'ВТБ (Базовая программа)', '/logos/vtb.svg');
+INSERT OR IGNORE INTO payment_methods (id, estimated_rate, bank_name, logo) VALUES (4, 9.0, 'Альфа-Банк (Господдержка)', '/logos/alfabank.svg');
