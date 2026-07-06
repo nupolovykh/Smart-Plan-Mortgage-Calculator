@@ -6,7 +6,7 @@ echo " Post-creation setup starting..."
 echo "=================================="
 
 # -- Permissions changed --
-echo "[1/6] Ensuring mounted folders have correct permissons..."
+echo "[1/7] Ensuring mounted folders have correct permissons..."
 if [ ! -w "/home/vscode/.claude" ]; then
     sudo chown -R vscode:vscode /home/vscode/.claude
     echo "  ✓ Permissions fixed"
@@ -14,8 +14,13 @@ else
     echo "  ✓ Permissions are correct"
 fi
 
+# -- Persist ~/.claude.json across rebuilds --
+echo "[2/7] Persisting ~/.claude.json across rebuilds..."
+source "$(dirname "${BASH_SOURCE[0]}")/persist-claude-json.sh"
+persist_claude_json
+
 # -- PHP dependencies --
-echo "[2/6] Installing PHP dependencies (composer)..."
+echo "[3/7] Installing PHP dependencies (composer)..."
 if [ -f composer.json ]; then
     composer install --no-interaction --prefer-dist
     echo "  ✓ composer install complete"
@@ -24,7 +29,7 @@ else
 fi
 
 # -- Frontend dependencies --
-echo "[3/6] Installing frontend dependencies (npm)..."
+echo "[4/7] Installing frontend dependencies (npm)..."
 if [ -f frontend/package.json ]; then
     cd frontend
     npm install
@@ -35,7 +40,7 @@ else
 fi
 
 # -- SQLite3 --
-echo "[4/6] Ensuring sqlite3 is installed..."
+echo "[5/7] Ensuring sqlite3 is installed..."
 if ! command -v sqlite3 &> /dev/null; then
     sudo apt-get update && sudo apt-get install -y sqlite3
     echo "  ✓ sqlite3 installed"
@@ -44,7 +49,7 @@ else
 fi
 
 # -- Database initialization --
-echo "[5/6] Initializing SQLite database..."
+echo "[6/7] Initializing SQLite database..."
 if [ -f database/init.sql ]; then
     sqlite3 database.sqlite < database/init.sql
     echo "  ✓ database schema created"
@@ -52,7 +57,7 @@ else
     echo "  ✗ database/init.sql not found, skipping"
 fi
 
-echo "[6/6] Loading seed data..."
+echo "[7/7] Loading seed data..."
 if [ -f database/seed.sql ]; then
     sqlite3 database.sqlite < database/seed.sql
     echo "  ✓ seed data loaded"
