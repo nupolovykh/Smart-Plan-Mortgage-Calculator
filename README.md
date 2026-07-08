@@ -25,14 +25,16 @@ The container automatically:
 # 1. Prerequisites: PHP 8.3+, Node.js 20+, Composer, SQLite3
 
 # 2. Install PHP dependencies
-composer install
+cd backend && composer install && cd ..
 
 # 3. Install frontend dependencies
 cd frontend && npm install && cd ..
 
 # 4. Initialize database
+cd backend
 sqlite3 database.sqlite < database/init.sql
 sqlite3 database.sqlite < database/seed.sql
+cd ..
 ```
 
 ## 🏃 Running the Application
@@ -41,6 +43,7 @@ Start both servers in separate terminals:
 
 ### Terminal 1 — PHP Backend (API)
 ```bash
+cd backend
 php -S 0.0.0.0:8000 src/api.php
 ```
 
@@ -56,6 +59,7 @@ Open http://localhost:5173 in your browser.
 
 ```bash
 # PHPUnit tests
+cd backend
 composer test
 
 # Or directly:
@@ -69,14 +73,14 @@ cd frontend && npm run lint
 
 ## 🗄️ Database
 
-The SQLite database (`database.sqlite`) is **local** and not tracked in git.
+The SQLite database (`backend/database.sqlite`) is **local** and not tracked in git.
 
 | File | Purpose |
 |------|---------|
-| `database/init.sql` | Schema creation (run once) |
-| `database/seed.sql` | Sample data (areas, promos, payment methods) |
+| `backend/database/init.sql` | Schema creation (run once) |
+| `backend/database/seed.sql` | Sample data (areas, promos, payment methods) |
 
-To reset: delete `database.sqlite` and re-run both SQL files.
+To reset: delete `backend/database.sqlite` and re-run both SQL files.
 
 ## 📁 Project Structure
 
@@ -89,21 +93,23 @@ To reset: delete `database.sqlite` and re-run both SQL files.
 │   └── xdebug.ini
 ├── .github/workflows/      # CI/CD pipeline (GitHub Actions)
 │   └── ci.yml             # PHP tests + Frontend lint/build + DB check
-├── database/               # SQL schema and seed data
-│   ├── init.sql
-│   └── seed.sql
+├── backend/                # PHP backend
+│   ├── src/
+│   │   ├── api.php         # REST API endpoints
+│   │   └── MortgageValidator.php
+│   ├── tests/              # PHPUnit tests
+│   │   └── MortgageValidatorTest.php
+│   ├── database/           # SQL schema and seed data
+│   │   ├── init.sql
+│   │   └── seed.sql
+│   ├── composer.json
+│   ├── phpunit.xml
+│   └── .env.example
 ├── frontend/               # React + TypeScript + Vite
 │   ├── src/
 │   ├── .gitignore
 │   ├── package.json
 │   └── vite.config.ts
-├── src/                    # PHP backend
-│   ├── api.php             # REST API endpoints
-│   └── MortgageValidator.php
-├── tests/                  # PHPUnit tests
-│   └── MortgageValidatorTest.php
-├── composer.json
-├── phpunit.xml
 └── .gitignore
 ```
 

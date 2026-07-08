@@ -26,3 +26,6 @@ Thumbs.db
 # Logs
 *.log
 *.result.cache
+
+# Claude Code (personal/local settings only - CLAUDE.md is shared and tracked)
+.claude/settings.local.json
