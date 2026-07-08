@@ -11,7 +11,17 @@
                 "bmewburn.vscode-intelephense-client",
                 "dbaeumer.vscode-eslint",
                 "mrmlnc.vscode-apache"
-            ]
+            ],
+            "settings": {
+                "terminal.integrated.profiles.linux": {
+                    "Claude Code": {
+                        "path": "bash",
+                        "args": ["-c", "exec sudo -u claudeme -i"],
+                        "icon": "terminal-bash",
+                        "color": "terminal.ansiYellow"
+                    }
+                }
+            }
         }
     },
     "features": {
@@ -19,7 +29,11 @@
         "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
     },
     "mounts": [
-        "source=claude-config,target=/home/vscode/.claude,type=volume",
-        "source=copilot-config,target=/home/vscode/.copilot,type=volume"
-    ]
+        "source=claude-vscode,target=/home/vscode/.claude,type=volume",
+        "source=claude-cli,target=/home/claudeme/.claude,type=volume"
+    ],
+    "containerEnv": {
+        "DISABLE_AUTOUPDATER": "1",
+        "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+    }
 }
