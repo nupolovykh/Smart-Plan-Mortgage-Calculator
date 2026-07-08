@@ -8,7 +8,7 @@ This file contains a prioritized sequence of improvement tasks for the project. 
 
 **Priority:** HIGH  
 **Category:** Security  
-**Files affected:** `src/api.php`
+**Files affected:** `backend/src/api.php`
 
 ### Problem
 The API endpoint `api/integrations/sendForm` does not validate types or sanitize inputs before processing. Missing field checks exist but no type validation (e.g., `mortgage_term` could be a string, `price` could be negative). SQL queries use prepared statements (good), but numeric fields are not validated for range/sanity.
@@ -92,7 +92,7 @@ The frontend has zero tests. The calculation logic (`calculatePrice`, `calculate
 
 **Priority:** HIGH  
 **Category:** Architecture / Reliability  
-**Files affected:** `src/api.php`
+**Files affected:** `backend/src/api.php`
 
 ### Problem
 The API has no centralized error handling. Database connection failures, JSON parse errors, and missing endpoints all use inline `http_response_code()` + `exit()` pattern. Error responses are inconsistent (some have `status` field, some don't). No logging exists.
@@ -116,15 +116,15 @@ The API has no centralized error handling. Database connection failures, JSON pa
 
 **Priority:** MEDIUM  
 **Category:** Developer Experience / Maintainability  
-**Files affected:** Create `database/migrations/` directory, modify `database/init.sql`
+**Files affected:** Create `backend/database/migrations/` directory, modify `backend/database/init.sql`
 
 ### Problem
 The database schema is managed by a single `init.sql` file that drops and recreates everything. There's no way to incrementally migrate the database schema as the application evolves. This makes deployments risky and collaboration difficult.
 
 ### Implementation
-1. Create `database/migrations/` directory
-2. Create `database/migrations/001_initial_schema.sql` with current schema
-3. Create a `database/migrate.php` script that:
+1. Create `backend/database/migrations/` directory
+2. Create `backend/database/migrations/001_initial_schema.sql` with current schema
+3. Create a `backend/database/migrate.php` script that:
    - Creates a `migrations` tracking table if not exists
    - Runs any migration files not yet applied (in order)
    - Records each migration after successful execution
@@ -132,7 +132,7 @@ The database schema is managed by a single `init.sql` file that drops and recrea
 5. Update `.devcontainer/post-create.sh` to use migration script instead of raw SQL
 
 ### Acceptance Criteria
-- Running `php database/migrate.php` applies all pending migrations
+- Running `php backend/database/migrate.php` applies all pending migrations
 - Running it again does nothing (idempotent)
 - New migration files are automatically picked up
 
@@ -191,7 +191,7 @@ The app shows a spinner during initial load, but there are no loading states for
 
 **Priority:** MEDIUM  
 **Category:** Security / Reliability  
-**Files affected:** `src/api.php`
+**Files affected:** `backend/src/api.php`
 
 ### Problem
 The API has no rate limiting or request throttling. A malicious client could flood the server with requests. There's also no CSRF protection or request ID tracking.
@@ -215,14 +215,14 @@ The API has no rate limiting or request throttling. A malicious client could flo
 
 **Priority:** MEDIUM  
 **Category:** Code Quality / Developer Experience  
-**Files affected:** `composer.json`, create `phpstan.neon`
+**Files affected:** `backend/composer.json`, create `backend/phpstan.neon`
 
 ### Problem
 The PHP codebase has no static analysis. Type errors, missing return types, and potential null dereferences are only caught at runtime. The `MortgageValidator` class has methods that accept `?array` but don't document null behavior clearly.
 
 ### Implementation
 1. Install phpstan: `composer require --dev phpstan/phpstan`
-2. Create `phpstan.neon` with level 6 configuration
+2. Create `backend/phpstan.neon` with level 6 configuration
 3. Add `"phpstan": "phpstan analyse src tests --level 6"` to composer scripts
 4. Fix all reported errors:
    - Add proper PHPDoc return types
@@ -265,7 +265,7 @@ The frontend has ESLint configured but no Prettier for consistent formatting. Th
 
 **Priority:** LOW  
 **Category:** Performance / Scalability  
-**Files affected:** `src/api.php`, `frontend/src/App.tsx`
+**Files affected:** `backend/src/api.php`, `frontend/src/App.tsx`
 
 ### Problem
 The `api/requests` endpoint returns ALL requests without pagination. As the database grows, this will become slow and consume excessive memory. The frontend renders all rows at once.
@@ -289,7 +289,7 @@ The `api/requests` endpoint returns ALL requests without pagination. As the data
 
 **Priority:** LOW  
 **Category:** Reliability / Developer Experience  
-**Files affected:** `src/api.php`, `.env.example`
+**Files affected:** `backend/src/api.php`, `backend/.env.example`
 
 ### Problem
 The `.env` file is optional and there's no validation that required configuration values exist. If `DB_PATH` is misconfigured, the error message is generic. There's no check that the database file is writable.
@@ -304,12 +304,12 @@ The `.env` file is optional and there's no validation that required configuratio
    - Database connection status
    - PHP version
    - Configuration status
-4. Update `.env.example` with all possible configuration options and descriptions
+4. Update `backend/.env.example` with all possible configuration options and descriptions
 
 ### Acceptance Criteria
 - Missing database directory returns clear error
 - `/api/health` returns 200 with status information
-- All configuration options are documented in `.env.example`
+- All configuration options are documented in `backend/.env.example`
 
 ---
 
@@ -317,7 +317,7 @@ The `.env` file is optional and there's no validation that required configuratio
 
 **Priority:** LOW  
 **Category:** Observability / Compliance  
-**Files affected:** `src/api.php`, `database/init.sql`
+**Files affected:** `backend/src/api.php`, `backend/database/init.sql`
 
 ### Problem
 There is no audit trail of who submitted what and when beyond the `created_at` timestamp. If multiple users use the system, there's no way to track which user made which request. No request/response logging exists for debugging.
@@ -392,7 +392,7 @@ The API has no formal documentation. New developers must read `api.php` to under
 
 **Priority:** LOW  
 **Category:** Performance  
-**Files affected:** `database/init.sql` or create migration
+**Files affected:** `backend/database/init.sql` or create migration
 
 ### Problem
 The `requests` table has no indexes on foreign keys (`payment_method_id`, `realty_id`, `promo_id`) or `created_at`. As the table grows, queries (especially `ORDER BY id DESC`) will become slow.
@@ -468,7 +468,7 @@ The CI pipeline runs tests and lint but is missing:
 
 **Priority:** LOW  
 **Category:** Feature  
-**Files affected:** `src/api.php`, `frontend/src/App.tsx`
+**Files affected:** `backend/src/api.php`, `frontend/src/App.tsx`
 
 ### Problem
 The requests list shows all records with no way to filter or search. Users cannot find specific requests by date range, payment method, or price range.
@@ -497,13 +497,13 @@ The requests list shows all records with no way to filter or search. Users canno
 
 **Priority:** LOW  
 **Category:** Architecture / Maintainability  
-**Files affected:** `src/api.php`
+**Files affected:** `backend/src/api.php`
 
 ### Problem
 The API uses `strpos()` checks for routing, which is fragile and can lead to false matches (e.g., `/api/areas` matches `/api/areas/extra`). There's no support for route parameters, middleware, or method-based routing.
 
 ### Implementation
-1. Create a simple `Router` class in `src/Router.php`:
+1. Create a simple `Router` class in `backend/src/Router.php`:
    - `get($path, $handler)` — register GET route
    - `post($path, $handler)` — register POST route
    - `dispatch($method, $uri)` — match and execute handler
