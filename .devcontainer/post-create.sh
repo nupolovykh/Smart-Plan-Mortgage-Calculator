@@ -5,19 +5,18 @@ echo "=================================="
 echo " Post-creation setup starting..."
 echo "=================================="
 
-# -- Permissions changed --
-echo "[1/7] Ensuring mounted folders have correct permissons..."
-if [ ! -w "/home/vscode/.claude" ]; then
-    sudo chown -R vscode:vscode /home/vscode/.claude
-    echo "  ✓ Permissions fixed"
-else
-    echo "  ✓ Permissions are correct"
-fi
+DIR="$(dirname "${BASH_SOURCE[0]}")"
+WORKSPACE_DIR="$(pwd)"
 
-# -- Persist ~/.claude.json across rebuilds --
-echo "[2/7] Persisting ~/.claude.json across rebuilds..."
-source "$(dirname "${BASH_SOURCE[0]}")/persist-claude-json.sh"
-persist_claude_json
+# -- VS Code extension's Claude account --
+echo "[1/7] Setting up VS Code extension's Claude account (vscode user)..."
+source "$DIR/lib/setup-claude-vscode.sh"
+setup_claude_vscode
+
+# -- Isolated claudeme user for Claude CLI sessions --
+echo "[2/7] Setting up isolated claudeme user for Claude CLI sessions..."
+source "$DIR/lib/setup-claude-cli.sh"
+setup_claude_cli "$WORKSPACE_DIR"
 
 # -- PHP dependencies --
 echo "[3/7] Installing PHP dependencies (composer)..."
