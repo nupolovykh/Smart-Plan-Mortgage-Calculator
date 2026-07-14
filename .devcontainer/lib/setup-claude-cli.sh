@@ -134,13 +134,17 @@ setup_claude_cli() {
         echo "  ✓ $workspace already marked safe.directory for $user"
     fi
 
-    # containerEnv (CLAUDE_CODE_OAUTH_TOKEN, DISABLE_AUTOUPDATER) lives on the
-    # container process but isn't guaranteed to reach a `sudo -u claudeme`
-    # shell. /etc/environment doesn't work here (PAM stack never reads it), so
-    # inject via claudeme's own ~/.profile instead — read on every login shell,
-    # and (unlike ~/.bashrc, which bails out early for non-interactive shells)
-    # has no interactive-only guard. Regenerated every run so it stays current
-    # if the token changes; markers keep it idempotent.
+    # containerEnv lives on the container process but isn't guaranteed to
+    # reach a `sudo -u claudeme` shell. /etc/environment doesn't work here
+    # (PAM stack never reads it), so inject via claudeme's own ~/.profile
+    # instead — read on every login shell, and (unlike ~/.bashrc, which bails
+    # out early for non-interactive shells) has no interactive-only guard.
+    # Regenerated every run so it stays current if the token changes; markers
+    # keep it idempotent.
+    #
+    # Arrives as CLAUDE_CODE_HOST_TOKEN, not CLAUDE_CODE_OAUTH_TOKEN — kept off
+    # containerEnv's real name so it can't reach vscode's extension host and
+    # force it into inference-only mode. Translated back here only.
     local marker_start="# >>> claude-cli env >>>"
     local marker_end="# <<< claude-cli env <<<"
 
@@ -150,11 +154,12 @@ setup_claude_cli() {
 
     {
         echo "$marker_start"
-        for var in CLAUDE_CODE_OAUTH_TOKEN DISABLE_AUTOUPDATER; do
-            if [ -n "${!var:-}" ]; then
-                echo "export ${var}='${!var}'"
-            fi
-        done
+        if [ -n "${CLAUDE_CODE_HOST_TOKEN:-}" ]; then
+            echo "export CLAUDE_CODE_OAUTH_TOKEN='${CLAUDE_CODE_HOST_TOKEN}'"
+        fi
+        if [ -n "${DISABLE_AUTOUPDATER:-}" ]; then
+            echo "export DISABLE_AUTOUPDATER='${DISABLE_AUTOUPDATER}'"
+        fi
         echo "cd '$workspace'"
         echo "$marker_end"
     } | sudo tee -a "$home/.profile" >/dev/null
