@@ -28,12 +28,17 @@
         "ghcr.io/devcontainers/features/node:2.1.0": {},
         "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
     },
+    "forwardPorts": [8000, 5173],
+    "portsAttributes": {
+        "8000": { "label": "Backend (php api)", "onAutoForward": "silent" },
+        "5173": { "label": "Frontend (vite)", "onAutoForward": "notify" }
+    },
     "mounts": [
         "source=claude-vscode,target=/home/vscode/.claude,type=volume",
         "source=claude-cli,target=/home/claudeme/.claude,type=volume"
     ],
     "containerEnv": {
         "DISABLE_AUTOUPDATER": "1",
-        "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+        "CLAUDE_CODE_HOST_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
     }
 }
