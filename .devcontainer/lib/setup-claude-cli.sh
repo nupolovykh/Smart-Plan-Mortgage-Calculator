@@ -160,6 +160,8 @@ setup_claude_cli() {
         if [ -n "${DISABLE_AUTOUPDATER:-}" ]; then
             echo "export DISABLE_AUTOUPDATER='${DISABLE_AUTOUPDATER}'"
         fi
+        echo "export EDITOR='vim'"
+        echo "export VISUAL='vim'"
         echo "cd '$workspace'"
         echo "$marker_end"
     } | sudo tee -a "$home/.profile" >/dev/null

@@ -50,26 +50,28 @@ session files, so no collision. The VS Code extension keeps running as
   group access, shared umask, seeds `~/.claude.json` with onboarding
   pre-completed, seeds `~/.gitconfig` from vscode's (identity + credential
   helper), marks the workspace `safe.directory`, and injects
-  `CLAUDE_CODE_OAUTH_TOKEN`/`DISABLE_AUTOUPDATER` into `claudeme`'s
-  `~/.profile`. Takes the workspace folder path as its one argument — see
-  `post-create.sh`, which captures it via `pwd` rather than hardcoding
-  `/workspaces/phpcalculator`, since devcontainer.json doesn't pin
+  `CLAUDE_CODE_OAUTH_TOKEN`/`DISABLE_AUTOUPDATER`/`EDITOR`/`VISUAL` into
+  `claudeme`'s `~/.profile`. Takes the workspace folder path as its one
+  argument — see `post-create.sh`, which captures it via `pwd` rather than
+  hardcoding `/workspaces/phpcalculator`, since devcontainer.json doesn't pin
   `workspaceFolder` and the CLI mounts under `/workspaces/<local-folder-basename>`.
-  Called from `post-create.sh` step `[2/8]`.
+  User/permission concerns only — installing actual binaries (including ones
+  only `claudeme` uses, like `vim`) lives in `setup-tools.sh` instead. Called
+  from `post-create.sh` step `[2/6]`.
 - `lib/setup-claude-vscode.sh` — the counterpart for the `vscode` user
   (permission fix; it gets `~/.gitconfig` for free and doesn't need the
   login-shell token injection `claudeme` needs). Also shadows `claude` with a
   bash function that refuses to run and points at the `claude` terminal
-  profile instead — see below. Step `[1/8]`.
-- `lib/setup-gh-cli.sh` — installs GitHub's `gh` CLI for `claudeme` as a
-  portable no-root binary (`~/.local/bin/gh`, same unprivileged-download
-  pattern as `run-phpcalculator/setup-chrome-deps.sh`), used by the
-  `open-pr` skill to actually create PRs. Only installs the binary —
-  `gh auth login` is interactive and must be run by a human, and doesn't
-  persist across rebuilds either (`~/.config/gh` isn't on the `claude-cli`
-  volume, so re-auth is needed after every rebuild same as the binary
-  itself would need reinstalling if this script didn't exist). Step
-  `[3/8]`.
+  profile instead — see below. Step `[1/6]`.
+- `lib/setup-tools.sh` — every external tool this devcontainer needs,
+  installed in one place: `vim` (claudeme's `$EDITOR`/`$VISUAL`, apt), and
+  `sqlite3` (apt) — both plain apt packages — plus `gh` (GitHub's CLI,
+  installed as a portable no-root binary at `claudeme`'s `~/.local/bin/gh`,
+  same unprivileged-download pattern as `run-phpcalculator/setup-chrome-deps.sh`,
+  used by the `open-pr` skill to actually create PRs). `gh` only installs the
+  binary — `gh auth login` is interactive and must be run by a human, and
+  doesn't persist across rebuilds either (`~/.config/gh` isn't on the
+  `claude-cli` volume). Step `[3/6]`.
 - `devcontainer.json` — adds the `claude` terminal profile (commented inline
   with the same explanation as above). `containerEnv` exposes the host's
   token as `CLAUDE_CODE_HOST_TOKEN`, not `CLAUDE_CODE_OAUTH_TOKEN` —

@@ -1,6 +1,39 @@
 #!/bin/bash
 set -e  # abort on first error
 
+# Installs every external tool this devcontainer needs, in one place. Kept
+# separate from the identity/permission scripts (setup-claude-vscode.sh,
+# setup-claude-cli.sh) — "what binaries exist on this system" and "who is
+# this user" are different concerns, even though some of these tools (vim,
+# gh) happen to only ever be used by claudeme.
+setup_tools() {
+    _setup_tools_vim
+    _setup_tools_sqlite3
+    _setup_tools_gh
+}
+
+# claudeme's $EDITOR/$VISUAL is vim — the base image only ships vim-tiny
+# (/usr/bin/vi), not the full vim binary that name resolves to.
+_setup_tools_vim() {
+    if ! command -v vim &>/dev/null; then
+        sudo apt-get update && sudo apt-get install -y vim
+        echo "  ✓ Installed vim"
+    else
+        echo "  ✓ vim already installed"
+    fi
+}
+
+# Used by post-create.sh itself (DB init/seed) and available to both users
+# at runtime.
+_setup_tools_sqlite3() {
+    if ! command -v sqlite3 &>/dev/null; then
+        sudo apt-get update && sudo apt-get install -y sqlite3
+        echo "  ✓ Installed sqlite3"
+    else
+        echo "  ✓ sqlite3 already available"
+    fi
+}
+
 # Installs GitHub's `gh` CLI as a portable, no-root binary for claudeme (used
 # by the open-pr skill to actually create PRs). No devcontainer feature for
 # gh works without root here, so this follows the same unprivileged-binary
@@ -12,7 +45,7 @@ set -e  # abort on first error
 # Only installs the binary - `gh auth login` is interactive and must be run
 # by a human; this script never touches auth, and auth doesn't persist
 # across rebuilds either (~/.config/gh isn't on the claude-cli volume).
-setup_gh_cli() {
+_setup_tools_gh() {
     local user="claudeme"
     local home="/home/$user"
     local bin_dir="$home/.local/bin"
