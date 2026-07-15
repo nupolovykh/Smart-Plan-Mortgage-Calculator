@@ -1,0 +1,10 @@
+{
+  "name": "run-phpcalculator-driver",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright REPL driver for the Smart Plan Mortgage Calculator frontend. Not part of the app itself.",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
