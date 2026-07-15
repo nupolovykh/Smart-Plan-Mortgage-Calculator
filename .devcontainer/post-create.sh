@@ -9,22 +9,22 @@ DIR="$(dirname "${BASH_SOURCE[0]}")"
 WORKSPACE_DIR="$(pwd)"
 
 # -- VS Code extension's Claude account --
-echo "[1/8] Setting up VS Code extension's Claude account (vscode user)..."
+echo "[1/6] Setting up VS Code extension's Claude account (vscode user)..."
 source "$DIR/lib/setup-claude-vscode.sh"
 setup_claude_vscode
 
 # -- Isolated claudeme user for Claude CLI sessions --
-echo "[2/8] Setting up isolated claudeme user for Claude CLI sessions..."
+echo "[2/6] Setting up isolated claudeme user for Claude CLI sessions..."
 source "$DIR/lib/setup-claude-cli.sh"
 setup_claude_cli "$WORKSPACE_DIR"
 
-# -- gh CLI for claudeme (used by the open-pr skill) --
-echo "[3/8] Installing gh CLI for claudeme..."
-source "$DIR/lib/setup-gh-cli.sh"
-setup_gh_cli
+# -- External tools (vim, sqlite3, gh) --
+echo "[3/6] Installing tools (vim, sqlite3, gh)..."
+source "$DIR/lib/setup-tools.sh"
+setup_tools
 
 # -- PHP dependencies --
-echo "[4/8] Installing PHP dependencies (composer)..."
+echo "[4/6] Installing PHP dependencies (composer)..."
 if [ -f backend/composer.json ]; then
     (cd backend && composer install --no-interaction --prefer-dist)
     echo "  ✓ composer install complete"
@@ -33,7 +33,7 @@ else
 fi
 
 # -- Frontend dependencies --
-echo "[5/8] Installing frontend dependencies (npm)..."
+echo "[5/6] Installing frontend dependencies (npm)..."
 if [ -f frontend/package.json ]; then
     cd frontend
     npm install
@@ -43,26 +43,14 @@ else
     echo "  ✗ frontend/package.json not found, skipping"
 fi
 
-# -- SQLite3 --
-echo "[6/8] Ensuring sqlite3 is installed..."
-if ! command -v sqlite3 &> /dev/null; then
-    sudo apt-get update && sudo apt-get install -y sqlite3
-    echo "  ✓ sqlite3 installed"
-else
-    echo "  ✓ sqlite3 already available"
-fi
-
-# -- Database initialization --
-echo "[7/8] Initializing SQLite database..."
+# -- Database: schema + seed data --
+echo "[6/6] Initializing and seeding SQLite database..."
 if [ -f backend/database/init.sql ]; then
     sqlite3 backend/database.sqlite < backend/database/init.sql
     echo "  ✓ database schema created"
 else
     echo "  ✗ backend/database/init.sql not found, skipping"
 fi
-
-# -- Seeding of database --
-echo "[8/8] Loading seed data..."
 if [ -f backend/database/seed.sql ]; then
     sqlite3 backend/database.sqlite < backend/database/seed.sql
     echo "  ✓ seed data loaded"
