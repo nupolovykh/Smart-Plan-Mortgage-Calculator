@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/skills/run-phpcalculator/ensure-driver-deps.sh",
+            "async": true,
+            "statusMessage": "Ensuring run-phpcalculator driver deps..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | grep -qE 'backend/src/.*[.]php$' && { printf '[%s] backend edit detected, running composer test\n' $(date -Is) >> .claude/hooks/post-edit-test.log; (cd backend && XDEBUG_MODE=off composer test) >> .claude/hooks/post-edit-test.log 2>&1; printf 'exit=%s\n' $? >> .claude/hooks/post-edit-test.log; } || true",
+            "statusMessage": "Running PHPUnit after backend edit..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/pre-push-check.sh",
+            "if": "Bash(git push*)",
+            "timeout": 120,
+            "statusMessage": "Checking backend tests + frontend lint/build before push..."
+          }
+        ]
+      }
+    ]
+  }
+}
