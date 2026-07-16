@@ -65,13 +65,32 @@ session files, so no collision. The VS Code extension keeps running as
   profile instead — see below. Step `[1/6]`.
 - `lib/setup-tools.sh` — every external tool this devcontainer needs,
   installed in one place: `vim` (claudeme's `$EDITOR`/`$VISUAL`, apt), and
-  `sqlite3` (apt) — both plain apt packages — plus `gh` (GitHub's CLI,
-  installed as a portable no-root binary at `claudeme`'s `~/.local/bin/gh`,
-  same unprivileged-download pattern as `run-phpcalculator/setup-chrome-deps.sh`,
-  used by the `open-pr` skill to actually create PRs). `gh` only installs the
-  binary — `gh auth login` is interactive and must be run by a human, and
-  doesn't persist across rebuilds either (`~/.config/gh` isn't on the
-  `claude-cli` volume). Step `[3/6]`.
+  `sqlite3` (apt) — both plain apt packages — plus `gh` (GitHub's CLI).
+  `claudeme` is the sole real owner of `gh` auth: the binary is installed as
+  a portable no-root binary at `claudeme`'s `~/.local/bin/gh` (same
+  unprivileged-download pattern as
+  `run-phpcalculator/setup-chrome-deps.sh`), and `~/.config/gh` lives on its
+  own named volume (`gh-shared`, mounted straight at
+  `/home/claudeme/.config/gh` — the name is a holdover from an earlier,
+  abandoned design and doesn't mean much now) so `gh auth login` (always
+  interactive, run by a human) survives rebuilds. `vscode` doesn't get its
+  own `gh` install at all — its `~/.local/bin/gh` is a small wrapper script
+  that re-execs into `sudo -u claudeme gh "$@"` (passwordless, same sudoers
+  rule the `claude` terminal profile below uses), so typing `gh` works
+  identically from either identity while there's only ever one real
+  `~/.config/gh` on disk. This is deliberate: an earlier attempt genuinely
+  shared one config between both users via a symlink, but `gh` rewrites its
+  credential files to mode `600` (owner-only) on almost every invocation —
+  not just `gh auth login` — which re-locked out whichever identity didn't
+  just run it, constantly. Routing everything through one real owner
+  sidesteps that entirely. Trade-offs: `GH_TOKEN`/other `GH_*` env vars set
+  in a `vscode` shell won't reach the proxied call (`sudo` resets the
+  environment by default); and anything `gh` does that shells out to `git`
+  (e.g. `gh pr create`'s push step) now always runs as `claudeme`, so it
+  depends on `claudeme`'s git credential helper actually working — see the
+  stale-`~/.gitconfig` rough edge further down, which now matters even for
+  `gh` actions triggered from a `vscode` shell, not just direct `claudeme`
+  use. Step `[3/6]`.
 - `devcontainer.json` — adds the `claude` terminal profile (commented inline
   with the same explanation as above). `containerEnv` exposes the host's
   token as `CLAUDE_CODE_HOST_TOKEN`, not `CLAUDE_CODE_OAUTH_TOKEN` —
