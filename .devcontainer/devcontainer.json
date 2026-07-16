@@ -35,7 +35,8 @@
     },
     "mounts": [
         "source=claude-vscode,target=/home/vscode/.claude,type=volume",
-        "source=claude-cli,target=/home/claudeme/.claude,type=volume"
+        "source=claude-cli,target=/home/claudeme/.claude,type=volume",
+        "source=gh-shared,target=/home/claudeme/.config/gh,type=volume"
     ],
     "containerEnv": {
         "DISABLE_AUTOUPDATER": "1",
