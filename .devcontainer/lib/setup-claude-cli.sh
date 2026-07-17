@@ -111,15 +111,29 @@ setup_claude_cli() {
         echo "  ✓ Removed vscode's claude-cli ban from claudeme's ~/.bashrc"
     fi
 
-    # claudeme has no ~/.gitconfig (not seeded by skel or anything else), so a
-    # commit would fail identity checks and a push would have no credential
-    # helper. Seed it from vscode's, which Dev Containers already populated
-    # with both. Guarded on existence so reruns never clobber later edits; if
-    # vscode's own .gitconfig isn't there yet, this just retries next rebuild.
-    if [ ! -f "$home/.gitconfig" ] && [ -f /home/vscode/.gitconfig ]; then
-        sudo cp /home/vscode/.gitconfig "$home/.gitconfig"
-        sudo chown "$user:$user" "$home/.gitconfig"
-        echo "  ✓ Seeded ~/.gitconfig from vscode's git identity/credentials"
+    # claudeme has no git identity of its own, so a commit would fail git's
+    # identity check. Seed only user.name/user.email from vscode's
+    # ~/.gitconfig — NOT the whole file (that also carries vscode's own
+    # credential.helper, which claudeme can't execute: it execs a node
+    # binary under /home/vscode, mode 700, unreachable by claudeme even
+    # though it's in the vscode group; see _setup_tools_gh_setup_git_credential
+    # in setup-tools.sh for claudeme's actual credential source). Guarded on
+    # the git config value itself, not file existence — an earlier version
+    # of this guarded on `[ ! -f "$home/.gitconfig" ]`, but the unconditional
+    # safe.directory step below creates that file too, which permanently
+    # defeated the guard after the very first boot (vscode's .gitconfig
+    # wasn't populated yet that first time, so the seed skipped once, then
+    # never got another chance).
+    if [ -f /home/vscode/.gitconfig ] \
+        && ! sudo -u "$user" env HOME="$home" git config --global --get user.name &>/dev/null; then
+        local vscode_name vscode_email
+        vscode_name="$(git config --file /home/vscode/.gitconfig --get user.name 2>/dev/null || true)"
+        vscode_email="$(git config --file /home/vscode/.gitconfig --get user.email 2>/dev/null || true)"
+        if [ -n "$vscode_name" ] && [ -n "$vscode_email" ]; then
+            sudo -u "$user" env HOME="$home" git config --global user.name "$vscode_name"
+            sudo -u "$user" env HOME="$home" git config --global user.email "$vscode_email"
+            echo "  ✓ Seeded claudeme's git identity from vscode's (user.name/user.email only)"
+        fi
     fi
 
     # git refuses to operate on a repo owned by a different user ("detected
