@@ -4,14 +4,16 @@ This file contains a prioritized sequence of improvement tasks for the project. 
 
 ---
 
-## Task 1: Add Input Validation & Sanitization to API
+## Task 1: Add Input Validation & Sanitization to API — DONE
 
 **Priority:** HIGH  
 **Category:** Security  
 **Files affected:** `backend/src/api.php`
 
-### Problem
-The API endpoint `api/integrations/sendForm` does not validate types or sanitize inputs before processing. Missing field checks exist but no type validation (e.g., `mortgage_term` could be a string, `price` could be negative). SQL queries use prepared statements (good), but numeric fields are not validated for range/sanity.
+**Status:** Implemented. `api.php` now has a `$numericFields` config array (min/max/allow_zero/is_int per field), a `promo_id` null-or-positive-int check, and a whitespace-strip pass over all string fields — matching the implementation steps below.
+
+### Problem (historical — kept for context)
+The API endpoint `api/integrations/sendForm` did not validate types or sanitize inputs before processing. Missing field checks existed but no type validation (e.g., `mortgage_term` could be a string, `price` could be negative). SQL queries use prepared statements (good), but numeric fields were not validated for range/sanity.
 
 ### Implementation
 1. Add numeric range validation for all numeric fields:
@@ -528,4 +530,4 @@ The API uses `strpos()` checks for routing, which is fragile and can lead to fal
 | MEDIUM   | 5     | 6, 7, 8, 9, 10 |
 | LOW      | 10    | 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 |
 
-**Total: 20 improvement tasks**
+**Total: 20 improvement tasks (1 already implemented — see Task 1)**
