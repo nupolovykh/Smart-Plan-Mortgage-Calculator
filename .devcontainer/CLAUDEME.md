@@ -48,8 +48,10 @@ session files, so no collision. The VS Code extension keeps running as
 
 - `lib/setup-claude-cli.sh` — creates the user, the sudoers rule, workspace
   group access, shared umask, seeds `~/.claude.json` with onboarding
-  pre-completed, seeds `~/.gitconfig` from vscode's (identity + credential
-  helper), marks the workspace `safe.directory`, and injects
+  pre-completed, seeds `~/.gitconfig` from vscode's (`user.name`/`user.email`
+  only — never the credential helper; see `setup-tools.sh` for where
+  `claudeme`'s actual git credentials come from), marks the workspace
+  `safe.directory`, and injects
   `CLAUDE_CODE_OAUTH_TOKEN`/`DISABLE_AUTOUPDATER`/`EDITOR`/`VISUAL` into
   `claudeme`'s `~/.profile`. Takes the workspace folder path as its one
   argument — see `post-create.sh`, which captures it via `pwd` rather than
@@ -83,14 +85,24 @@ session files, so no collision. The VS Code extension keeps running as
   credential files to mode `600` (owner-only) on almost every invocation —
   not just `gh auth login` — which re-locked out whichever identity didn't
   just run it, constantly. Routing everything through one real owner
-  sidesteps that entirely. Trade-offs: `GH_TOKEN`/other `GH_*` env vars set
+  sidesteps that entirely. Trade-off: `GH_TOKEN`/other `GH_*` env vars set
   in a `vscode` shell won't reach the proxied call (`sudo` resets the
-  environment by default); and anything `gh` does that shells out to `git`
-  (e.g. `gh pr create`'s push step) now always runs as `claudeme`, so it
-  depends on `claudeme`'s git credential helper actually working — see the
-  stale-`~/.gitconfig` rough edge further down, which now matters even for
-  `gh` actions triggered from a `vscode` shell, not just direct `claudeme`
-  use. Step `[3/6]`.
+  environment by default).
+
+  This same file also sets up plain `git`'s credentials — separately from
+  `gh` and deliberately not routed through it. Pulls the token once from
+  `claudeme`'s authenticated `gh` login and writes it into an independent,
+  static `~/.git-credentials` file for **each** user (not shared, not
+  symlinked — a plain `git config --global credential.helper store` file
+  each), then host-scopes `credential.helper` for `github.com`/
+  `gist.github.com` in each user's own `~/.gitconfig` to point at their own
+  file. This replaces two things that used to matter: `gh auth setup-git`
+  (which only ever fixed `claudeme`'s side, leaving `vscode`'s own direct
+  `git push` untouched) and `/etc/gitconfig`'s VS-Code-injected helper (a
+  *live* IPC tunnel back to the host — reads `$REMOTE_CONTAINERS_IPC`, posts
+  to a unix socket that only `vscode` can connect to, and whose paths are
+  regenerated every reconnect — never a stable thing to depend on for
+  either user, not just `claudeme`). Step `[3/6]`.
 - `devcontainer.json` — adds the `claude` terminal profile (commented inline
   with the same explanation as above). `containerEnv` exposes the host's
   token as `CLAUDE_CODE_HOST_TOKEN`, not `CLAUDE_CODE_OAUTH_TOKEN` —
@@ -143,8 +155,8 @@ echo bye >> backend/src/test.tmp && rm backend/src/test.tmp   # as vscode — sh
   ban too. `setup-claude-cli.sh` strips that specific block back out of
   claudeme's `~/.bashrc` unconditionally, every run, so it self-heals
   regardless of copy order.
-- `claudeme`'s `~/.gitconfig` is a one-time copy of vscode's, taken at
-  `postCreateCommand` time. If vscode's credential helper later changes
-  (e.g. a VS Code Server update rotates the version-hashed helper path),
-  `claudeme`'s copy goes stale until the container is rebuilt — it's never
-  re-synced after the first seed.
+- Both users' `~/.git-credentials` hold the same plaintext token (claudeme's
+  `gh` token, copied to both at `postCreateCommand` time) — readable only by
+  each file's own owner (`600`), but worth knowing it's sitting there in
+  plaintext rather than behind a credential manager. Regenerated every
+  `post-create.sh` run, so a rotated token propagates on the next rebuild.
