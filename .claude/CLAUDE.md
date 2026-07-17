@@ -64,4 +64,4 @@ Single ~430-line component holding all state, all three domain interfaces (`Area
 Four tables: `promos` (percentage or fixed-`rub` discount), `areas` (plots, each optionally tied to a promo), `payment_methods` (bank + rate), `requests` (submitted applications, FKs to the other three). No indexes beyond primary keys.
 
 ## Known gaps / backlog
-`tasks/01-improvement-tasks.md` contains a prioritized list of 20 not-yet-implemented improvements (input validation hardening, splitting `App.tsx`, frontend tests, error-handling middleware, migrations, rate limiting, PHPStan, pagination, etc.). Check it before proposing large structural changes — the desired direction may already be scoped out there.
+`tasks/01-improvement-tasks.md` contains a prioritized list of 20 improvements; Task 1 (API input validation/sanitization hardening) is already implemented — see the status note at the top of that task. The remaining 19 are not yet done (splitting `App.tsx`, frontend tests, error-handling middleware, migrations, rate limiting, PHPStan, pagination, etc.). Check the file before proposing large structural changes — the desired direction may already be scoped out there.
