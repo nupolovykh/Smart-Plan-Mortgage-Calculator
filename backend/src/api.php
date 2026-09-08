@@ -38,7 +38,14 @@ $config = function (string $key, $default = null) use ($env) {
 // ────────────────────────────────────────────────
 // CORS Headers
 // ────────────────────────────────────────────────
-$allowedOrigins = $config('CORS_ALLOWED_ORIGINS', '*');
+$allowedOrigins = $config('CORS_ALLOWED_ORIGINS', null);
+if ($allowedOrigins === null || trim($allowedOrigins) === '') {
+    // Fail closed: never silently default to '*' in an unconfigured (e.g. production)
+    // environment. Fall back to a localhost-only allowlist matching the documented
+    // local-dev origins in backend/.env.example, and log so misconfiguration is visible.
+    error_log('[api.php] CORS_ALLOWED_ORIGINS is not set; defaulting to localhost-only origins. Set it explicitly in .env for production.');
+    $allowedOrigins = 'http://localhost:5173,http://localhost:8000';
+}
 if ($allowedOrigins === '*') {
     header('Access-Control-Allow-Origin: *');
 } else {
@@ -70,10 +77,25 @@ try {
     // Enable foreign keys
     $db->exec('PRAGMA foreign_keys = ON');
 } catch (Exception $e) {
+    error_log('[api.php] Database connection failed: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['status' => 'error', 'message' => 'Database connection failed: ' . $e->getMessage()]);
+    echo json_encode(['status' => 'error', 'message' => 'Internal server error']);
     exit();
 }
+
+// Idempotent: creates the rate-limiting log table if it doesn't exist yet, so
+// existing local databases pick it up without needing a manual reset (there is
+// no migration system in this project — see database/init.sql for the source
+// of truth, kept in sync with this).
+$db->exec(
+    'CREATE TABLE IF NOT EXISTS request_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ip_address TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )'
+);
+$db->exec('CREATE INDEX IF NOT EXISTS idx_request_log_ip_endpoint_created ON request_log(ip_address, endpoint, created_at)');
 
 $requestUri = $_SERVER['REQUEST_URI'] ?? '';
 $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -108,6 +130,44 @@ if ($requestMethod === 'GET') {
 }
 
 if ($requestMethod === 'POST' && strpos($path, 'api/integrations/sendForm') !== false) {
+    // ────────────────────────────────────────────────
+    // Rate limiting (per-IP, sliding window, backed by SQLite)
+    // See tasks/01-improvement-tasks.md, Task 8.
+    // ────────────────────────────────────────────────
+    $rateLimitEndpoint = 'api/integrations/sendForm';
+    $rateLimitMax = (int) $config('RATE_LIMIT_MAX_REQUESTS', 60);
+    $rateLimitWindowSeconds = (int) $config('RATE_LIMIT_WINDOW_SECONDS', 60);
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+    // Rows older than the window can never affect a decision, and nothing else
+    // deletes them: without this the table grows by one row per request forever
+    // and the index below it with it. Pruning first also keeps the count cheap.
+    $pruneStmt = $db->prepare(
+        "DELETE FROM request_log WHERE created_at < datetime('now', :window)"
+    );
+    $pruneStmt->execute([':window' => '-' . $rateLimitWindowSeconds . ' seconds']);
+
+    $countStmt = $db->prepare(
+        "SELECT COUNT(*) FROM request_log
+         WHERE ip_address = :ip AND endpoint = :endpoint
+           AND created_at >= datetime('now', :window)"
+    );
+    $countStmt->execute([
+        ':ip' => $clientIp,
+        ':endpoint' => $rateLimitEndpoint,
+        ':window' => '-' . $rateLimitWindowSeconds . ' seconds',
+    ]);
+    $recentRequestCount = (int) $countStmt->fetchColumn();
+
+    if ($recentRequestCount >= $rateLimitMax) {
+        http_response_code(429);
+        echo json_encode(['status' => 'error', 'message' => 'Too many requests. Please try again later.']);
+        exit();
+    }
+
+    $logStmt = $db->prepare('INSERT INTO request_log (ip_address, endpoint) VALUES (:ip, :endpoint)');
+    $logStmt->execute([':ip' => $clientIp, ':endpoint' => $rateLimitEndpoint]);
+
     // Get JSON input
     $input = file_get_contents('php://input');
     $requestData = json_decode($input, true);
@@ -263,7 +323,16 @@ if ($requestMethod === 'POST' && strpos($path, 'api/integrations/sendForm') !== 
             echo json_encode(['status' => 'success', 'message' => 'Request entity created successfully.', 'data' => $requestData]);
             exit();
         }
+    } catch (PDOException $e) {
+        // Unexpected database error (not a deliberate MortgageValidator rejection) —
+        // never echo driver/path details to the client, log them server-side instead.
+        error_log('[api.php] Unexpected database error while saving request: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Internal server error']);
+        exit();
     } catch (Exception $e) {
+        // MortgageValidator throws plain \Exception with a deliberate, user-facing
+        // message (e.g. "Price tampering detected!") — safe to return as-is.
         http_response_code(400);
         echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
         exit();
