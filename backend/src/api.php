@@ -139,6 +139,14 @@ if ($requestMethod === 'POST' && strpos($path, 'api/integrations/sendForm') !== 
     $rateLimitWindowSeconds = (int) $config('RATE_LIMIT_WINDOW_SECONDS', 60);
     $clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 
+    // Rows older than the window can never affect a decision, and nothing else
+    // deletes them: without this the table grows by one row per request forever
+    // and the index below it with it. Pruning first also keeps the count cheap.
+    $pruneStmt = $db->prepare(
+        "DELETE FROM request_log WHERE created_at < datetime('now', :window)"
+    );
+    $pruneStmt->execute([':window' => '-' . $rateLimitWindowSeconds . ' seconds']);
+
     $countStmt = $db->prepare(
         "SELECT COUNT(*) FROM request_log
          WHERE ip_address = :ip AND endpoint = :endpoint
