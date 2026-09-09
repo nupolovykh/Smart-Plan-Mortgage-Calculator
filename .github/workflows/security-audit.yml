@@ -1,0 +1,63 @@
+name: Security audit
+
+# Deliberately NOT part of CI.
+#
+# `npm audit` answers a question about the global advisory database, not about
+# the commit under test. A newly published advisory turns every open pull request
+# red at once — including the very bump that fixes it — and in a repository where
+# green CI is what merges updates, that stops the updates from landing exactly
+# when they matter most. Here it reports on a schedule and blocks nothing.
+#
+# It is also the one workflow that speaks about `main` itself. Dependabot's
+# security updates ignore `target-branch` and never enter the `deps` flow, so a
+# red run here is the signal that main needs a human.
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Audit (high and above)
+        run: npm audit --audit-level=high
+
+  composer:
+    name: composer audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+
+      - run: composer install --no-interaction --prefer-dist
+
+      - name: Audit
+        run: composer audit

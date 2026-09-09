@@ -2,9 +2,16 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, develop, deps]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, develop, deps]
+  workflow_dispatch:
+
+# Read-only on purpose. CI checks out pull request code and runs `npm ci`, which
+# executes install scripts from the very packages Dependabot is bumping. Nothing
+# in this workflow needs to write; the automation that does holds its own token.
+permissions:
+  contents: read
 
 jobs:
   # ──────────────────────────────────────
@@ -59,9 +66,6 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
-
-      - name: Audit dependencies (high+ severity)
-        run: npm audit --audit-level=high
 
       - name: Lint
         run: npm run lint
