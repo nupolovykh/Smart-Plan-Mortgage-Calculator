@@ -24,7 +24,7 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.actor.login == 'dependabot[bot]'
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
     runs-on: ubuntu-latest
     steps:
       - name: Merge the pull request if it targets the dependency branch
@@ -36,6 +36,7 @@ jobs:
           number=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
             --jq '.[]
                   | select(.state == "open")
+                  | select(.user.login == "dependabot[bot]")
                   | select(.base.ref == "security-features-main")
                   | .number' | head -n1)
 
