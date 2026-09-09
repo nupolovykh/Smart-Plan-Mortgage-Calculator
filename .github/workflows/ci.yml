@@ -2,9 +2,9 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, security-features-main]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, master, develop, security-features-main]
 
 jobs:
   # ──────────────────────────────────────
@@ -59,6 +59,9 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
+
+      - name: Audit dependencies (high+ severity)
+        run: npm audit --audit-level=high
 
       - name: Lint
         run: npm run lint
