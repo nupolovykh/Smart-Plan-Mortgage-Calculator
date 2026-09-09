@@ -39,3 +39,15 @@ CREATE TABLE IF NOT EXISTS requests (
     FOREIGN KEY (realty_id) REFERENCES areas(id),
     FOREIGN KEY (promo_id) REFERENCES promos(id)
 );
+
+-- Per-IP request log backing the sliding-window rate limit on
+-- POST /api/integrations/sendForm (see tasks/01-improvement-tasks.md, Task 8).
+-- api.php also creates this table at runtime if missing, so existing local
+-- databases pick it up without a manual reset -- kept in sync with that here.
+CREATE TABLE IF NOT EXISTS request_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip_address TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_request_log_ip_endpoint_created ON request_log(ip_address, endpoint, created_at);

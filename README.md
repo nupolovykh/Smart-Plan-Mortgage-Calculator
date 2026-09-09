@@ -7,8 +7,8 @@ PHP + React + SQLite mortgage application validator with REST API.
 This project includes a **fully automated DevContainer** for VS Code.
 
 ```bash
-git clone <repo-url>
-cd phpcalculator
+git clone https://github.com/nupolovykh/Smart-Plan-Mortgage-Calculator.git
+cd Smart-Plan-Mortgage-Calculator
 code .
 # Click: "Reopen in Container" (Cmd+Shift+P → Dev Containers: Reopen in Container)
 ```
