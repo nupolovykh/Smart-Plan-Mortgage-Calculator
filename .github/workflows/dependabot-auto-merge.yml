@@ -1,48 +1,102 @@
 name: Dependabot auto-merge
 
-# CI runs on the pull request itself; this workflow waits for that run to finish
-# and merges only when it passed. It cannot be done from the pull_request event:
-# a run raised by Dependabot gets a read-only token, so the merge has to happen
-# from a workflow_run job, which executes in the context of the default branch
-# with write access.
-#
-# There is no semver filter. A bump that breaks the build fails CI and is
-# therefore never merged — the same outcome as filtering patch/minor, by a
-# shorter and more honest route.
-
 on:
   workflow_run:
     workflows: ["CI Pipeline"]
     types: [completed]
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
+  checks: read
 
 jobs:
   auto-merge:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.actor.login == 'dependabot[bot]'
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'pull_request' &&
+       startsWith(github.event.workflow_run.head_branch, 'dependabot/'))
     runs-on: ubuntu-latest
     steps:
-      - name: Merge the pull request if it targets the dependency branch
+      - name: Merge every dependency pull request whose checks have passed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           REPO: ${{ github.repository }}
+          BASE: security-features-main
         run: |
-          number=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
-            --jq '.[]
-                  | select(.state == "open")
-                  | select(.base.ref == "security-features-main")
-                  | .number' | head -n1)
+          set -uo pipefail
 
-          if [ -z "$number" ]; then
-            echo "No open pull request against security-features-main for $HEAD_SHA."
+          merge_pr() {
+            local number="$1" sha="$2" method
+            for method in squash merge rebase; do
+              if gh api --method PUT "repos/$REPO/pulls/$number/merge" \
+                   -f merge_method="$method" -f sha="$sha" >/dev/null 2>&1; then
+                echo "#$number merged ($method)."
+                ref=$(gh api "repos/$REPO/pulls/$number" --jq '.head.ref')
+                gh api --method DELETE "repos/$REPO/git/refs/heads/$ref" >/dev/null 2>&1 \
+                  || echo "::warning::merged #$number but could not delete $ref."
+                return 0
+              fi
+              echo "#$number: $method merge refused."
+            done
+            return 1
+          }
+
+          open=$(gh api --paginate \
+                   "repos/$REPO/pulls?state=open&base=$BASE&per_page=100" \
+                   --jq '.[]
+                         | select(.user.login == "dependabot[bot]")
+                         | select(.head.ref | startswith("dependabot/"))
+                         | "\(.number)\t\(.head.sha)"')
+
+          if [ -z "$open" ]; then
+            echo "No open dependency pull requests."
             exit 0
           fi
 
-          echo "CI passed on $HEAD_SHA; merging #$number into security-features-main."
-          gh pr merge --squash --delete-branch --repo "$REPO" "$number"
+          stuck=0
+          while IFS=$'\t' read -r number sha; do
+            [ -n "$number" ] || continue
+
+            state=$(gh api "repos/$REPO/pulls/$number" --jq '.mergeable_state')
+            if [ "$state" = "dirty" ]; then
+              echo "#$number conflicts with $BASE; leaving it for Dependabot to rebase."
+              continue
+            fi
+
+            checks=$(gh api "repos/$REPO/commits/$sha/check-runs" --paginate \
+                       --jq '.check_runs[] | select(.name != "auto-merge") | "\(.status):\(.conclusion)"')
+
+            if [ -z "$checks" ]; then
+              echo "#$number has no checks yet; skipping."
+              continue
+            fi
+            if grep -qv '^completed:' <<<"$checks"; then
+              echo "#$number still has checks running; skipping."
+              continue
+            fi
+            if grep -qvE '^completed:(success|skipped|neutral)$' <<<"$checks"; then
+              echo "#$number has a failing check; leaving it open."
+              continue
+            fi
+
+            behind=$(gh api "repos/$REPO/compare/$BASE...$sha" --jq '.behind_by')
+            if [ "${behind:-0}" -gt 0 ]; then
+              echo "#$number is $behind commits behind $BASE."
+              if gh api --method PUT "repos/$REPO/pulls/$number/update-branch" >/dev/null 2>&1; then
+                echo "#$number branch updated; it merges once CI has run on the new head."
+                continue
+              fi
+              echo "#$number could not be updated; merging it as it stands."
+            fi
+
+            merge_pr "$number" "$sha" || {
+              echo "::error::#$number passed CI and cannot be merged by GITHUB_TOKEN."
+              stuck=$((stuck + 1))
+            }
+          done <<<"$open"
+
+          exit $(( stuck > 0 ))
