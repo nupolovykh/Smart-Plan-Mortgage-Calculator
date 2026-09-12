@@ -132,7 +132,11 @@ jobs:
               # A truncated listing means the answer is unknown. Say the branch
               # adds content: that opens a promotion for a human to look at,
               # rather than resetting a branch that might be holding something.
-              verdict=$(jq -n \
+              # -r matters: without it jq prints a JSON string, quotes and all,
+              # and the comparison below never matches. That made every branch
+              # look like it still had something to promote, whatever the trees
+              # actually said.
+              verdict=$(jq -n -r \
                 --argjson b "$(tree_json "$split_tree")" \
                 --argjson m "$(tree_json "$main_tree")" \
                 --argjson d "$(tree_json "$deps_tree")" '
