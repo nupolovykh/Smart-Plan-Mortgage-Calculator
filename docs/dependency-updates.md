@@ -43,16 +43,39 @@ commit on `deps` and the workflow resets nothing and turns red. The single
 exception is a commit that is provably `main`'s own amended-away tip (detected
 via `github.event.before` on the force-push), which is debris, not work.
 
-All four transitions are handled:
+Every state the two branches can be in is handled. *Adds content* below is one
+precise question: of the paths `deps` changed relative to the commit the two
+branches split from, is there one where `main` does not already hold `deps`'s
+content? It is answered by comparing blob SHAs in three trees — the split point,
+`main`'s tip and `deps`'s tip — because a tree is addressed by its own SHA and
+cannot be read stale.
+
+Two simpler tests were tried first and both are wrong. *"The compare endpoint
+reported changed files"* is cached and answers from before a merge that has
+already landed. *"`deps`'s tree differs from `main`'s tip"* is true the moment
+`main` carries anything `deps` never had, and *"`deps`'s tree differs from the
+split point"* is true the moment `deps` carries a bump — including one `main`
+has since taken by squash merge, which is exactly what a completed promotion
+leaves behind. This repository is where the third of those was caught: ten
+updates were promoted and merged, `main` had also taken the workflow upgrade
+itself, and the next run opened a second promotion for the same ten:
 
 | `main` vs `deps` | Cause | Action |
 |---|---|---|
 | identical | steady state | nothing |
-| `deps` ahead | updates collected | open/refresh the promotion PR |
-| `deps` behind | promotion merged with a merge commit | fast-forward `deps` |
-| diverged, no diff | promotion squash- or rebase-merged | reset `deps` |
+| ahead, adds content | updates collected | open/refresh the promotion PR |
+| ahead, adds nothing | one full cycle's leftover merge | reset `deps` |
+| behind | promotion merged with a merge commit | fast-forward `deps` |
+| diverged, adds nothing | promotion squash-merged, or `main` moved on | reset `deps` |
+| diverged, adds content, promotion open | `main` moved on under real bumps | merge `main` in through `update-branch`, keep the bumps |
+| diverged, adds content, no promotion | same, nothing to merge through | open the promotion as it stands |
 | diverged, amended tip | `git commit --amend` on `main` | reset `deps`, bumps re-raised |
 | diverged, real human commit | someone pushed to `deps` | refuse, run turns red |
+
+The `update-branch` row is the one that is easy to get wrong. Treating every
+divergence as a rewrite and re-cutting the branch means the update queue
+restarts from nothing on every single commit to `main` — and on every security
+fix, once those are enabled. Only a genuine force-push re-cuts it now.
 
 ## Why there is no checkout
 
@@ -111,31 +134,70 @@ A green run genuinely means nothing needs attention.
 - **Actions are pinned to major tags, not commit SHAs.** A retargeted tag would
   execute in a job holding a write token. Pinning to SHAs closes that, and
   Dependabot still updates them; it is the obvious next hardening step.
-- **The promotion pull request carries a second, parked CI entry.** It is opened
-  by `GITHUB_TOKEN`, so GitHub registers a `pull_request` run for it and holds it
-  at `action_required` — *"1 workflow awaiting approval"*. It never turns green on
-  its own and there is no reason to approve it: checks attach to a commit, not to
-  a pull request, so the run this workflow dispatches on `deps`'s head is the real
-  one and shows up as the pull request's own green CI. **The merge itself is not
-  blocked** — the button is live and the banner says so. To make the extra entry
-  disappear, set a repository secret `DEPS_TOKEN` to a personal access token: the
-  pull request then comes from a real account, CI runs on it normally, and the
-  dispatch becomes unnecessary. Nothing requires it.
-- **`GITHUB_TOKEN` cannot write `.github/workflows/`.** A Dependabot pull request
-  that edits a workflow and is behind its base cannot be merged by the gate, so
-  it comments `@dependabot rebase` once and Dependabot, which has the
-  permission, brings the head level.
+- **The automation runs on a personal access token, not `GITHUB_TOKEN`.** See
+  *The token* below. Two limits disappeared with it and are recorded here so
+  nobody reintroduces them: `GITHUB_TOKEN` may not write `.github/workflows/`,
+  which left every action bump unmergeable whenever it sat behind its base; and
+  it could not ask for help either, because `@dependabot rebase` from
+  `github-actions[bot]` is answered *"Sorry, only users with push access can use
+  that command"*. The promotion also no longer parks a second CI entry at
+  `action_required`, because it is opened by a real account.
+- **A sweep can be cancelled while it is queued.** `concurrency` with
+  `cancel-in-progress: false` keeps exactly one run waiting per group; during a
+  burst of events the waiting one is cancelled by the next. Nothing is lost —
+  every sweep re-reads state from the API rather than from the event — so a
+  `cancelled` sweep in the run list is expected, not a fault. Each push to
+  `main` also spends one sweep that exits `skipped`, because `workflow_run`
+  fires for CI runs of every event type and only `pull_request` ones matter.
+
+## The token
+
+`dependabot-auto-merge.yml` and `deps-promote.yml` authenticate as the repository
+secret `DEPS_PAT`. Nothing else does: `ci.yml` and `security-audit.yml` never see
+it.
+
+That split is the reason a personal access token is acceptable here at all. Those
+two are the only workflows that check out the repository and run third-party code
+— `npm ci`, `composer install`, the test suites. The two that hold the token do
+no checkout at all; every step is an API call, so there is no working tree, no
+script on disk that a push to `deps` could poison, and no package install that
+could read the environment. Grep for `actions/checkout` in either file and the
+count is zero. Keep it that way: adding a checkout step to a workflow that holds
+`DEPS_PAT` hands the token to whatever the update being tested chooses to run.
+
+What it must be able to do: read and write contents, read and write pull
+requests, read and write Actions, and write files under `.github/workflows/`.
+
+When it expires both workflows start failing with 401. The weekly sweep turns
+red, which is the intended notification, but that is up to seven days of a queue
+that has silently stopped. Renew it before the expiry date rather than after the
+first red run.
+
+The design and these two workflow files are shared with
+`QA-web-labprojects-python`, where they were measured end to end against real
+updates; that repository's `docs/dependency-updates.md` carries the timings and
+`docs/porting-the-dependency-pipeline.md` the checklist this repository was
+ported with.
 
 ## Repository settings this depends on
 
 Not in the repository, so listed here:
 
-1. **Settings → Actions → General → Workflow permissions**: *Allow GitHub
+1. **Settings → Secrets and variables → Actions**: `DEPS_PAT` — see above.
+   Without it both automation workflows fail immediately with 401.
+2. **Settings → Actions → General → Workflow permissions**: *Allow GitHub
    Actions to create and approve pull requests* — ticked. Without it the
    promotion pull request cannot be opened and the step fails with 403.
-   (The read-only default for `GITHUB_TOKEN` is fine: each workflow requests
-   what it needs via its own `permissions:` block.)
-2. **Settings → General → Pull Requests**: squash merging enabled.
+3. **Settings → General → Pull Requests**: squash merging enabled.
+4. **Settings → Advanced Security → Dependabot alerts**: enabled. Without it no
+   advisory is ever detected, and the sweep's check for a security update
+   stranded on `main` can never fire, because no such pull request is raised.
+5. **Branch protection on `main`: require a pull request, and tick *Do not allow
+   bypassing the above settings*.** The second half is what actually stops a
+   direct push by an administrator. Leave *Require approvals* unticked — its
+   minimum is 1, and a repository with one maintainer cannot satisfy it. Do not
+   add required status checks from a matrix: the check names carry the matrix
+   values, so renaming one entry blocks every future pull request permanently.
 
 ## Running it by hand
 
