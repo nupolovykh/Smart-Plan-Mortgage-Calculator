@@ -101,33 +101,50 @@ jobs:
           number=$(find_open_pr)
 
           # ahead_by counts commits, not content. What decides whether there is
-          # anything for a human to review is whether deps adds content, and that
-          # is read from commit objects rather than from the compare above.
+          # anything for a human to review is whether deps holds content that
+          # main does not, and that is a question about trees, not about the
+          # compare above — /compare is cached and can answer from before a merge
+          # that has already landed.
           #
-          # Not from the compare, because /compare is cached and can answer from
-          # before a merge that has already landed. A run triggered by the
-          # promotion merge itself then sees files still changed and opens a
-          # second promotion with an empty diff. A commit's tree SHA is part of
-          # the commit object, so it cannot be stale once the ref is current.
+          # Stated exactly: of the paths deps changed relative to the commit the
+          # two branches split from, does main already hold deps' content for
+          # every one of them? Neither shortcut answers that. "deps matches
+          # main's tip" is false the moment main carries anything deps never had.
+          # "deps matches the split point" is false the moment deps carries a
+          # bump — including one main has since taken by squash merge, which is
+          # what every completed promotion leaves behind. Both shortcuts were
+          # tried, and both opened a promotion for updates already on main.
           #
-          # And not against the tip of main, because the question is not "does
-          # deps match main" but "does deps add anything to the commit the two
-          # branches split from". Those stop being the same question the moment
-          # main moves on — which is exactly when this workflow runs, since a
-          # push to main is what triggers it.
+          # Blob SHAs come from the trees themselves. A tree is addressed by its
+          # own SHA, so reading it cannot be stale once the refs are current.
           tree_of() { gh api "repos/$REPO/git/commits/$1" --jq '.tree.sha' 2>/dev/null || echo ""; }
+          tree_json() { gh api "repos/$REPO/git/trees/$1?recursive=1" 2>/dev/null || echo '{"truncated":true,"tree":[]}'; }
 
           deps_sha=$(gh api "repos/$REPO/git/ref/heads/${DEPS_BRANCH}" --jq '.object.sha' 2>/dev/null || echo "")
           merge_base=$(jq -r '.merge_base_commit.sha // empty' <<<"$compare")
 
           adds_nothing=false
-          if [ -n "$deps_sha" ]; then
+          if [ -n "$deps_sha" ] && [ -n "$merge_base" ]; then
+            split_tree=$(tree_of "$merge_base")
+            main_tree=$(tree_of "$base_sha")
             deps_tree=$(tree_of "$deps_sha")
-            # The merge base is the real test; the tip is a second route to the
-            # same verdict, for when the cached compare hands back a stale base.
-            [ "$deps_tree" = "$(tree_of "$base_sha")" ] && adds_nothing=true
-            if [ "$adds_nothing" != true ] && [ -n "$merge_base" ]; then
-              [ "$deps_tree" = "$(tree_of "$merge_base")" ] && adds_nothing=true
+            if [ -n "$split_tree" ] && [ -n "$main_tree" ] && [ -n "$deps_tree" ]; then
+              # A truncated listing means the answer is unknown. Say the branch
+              # adds content: that opens a promotion for a human to look at,
+              # rather than resetting a branch that might be holding something.
+              verdict=$(jq -n \
+                --argjson b "$(tree_json "$split_tree")" \
+                --argjson m "$(tree_json "$main_tree")" \
+                --argjson d "$(tree_json "$deps_tree")" '
+                  def blobs: [ .tree[] | select(.type == "blob") | {key: .path, value: .sha} ] | from_entries;
+                  if ($b.truncated or $m.truncated or $d.truncated) then "content"
+                  else
+                    ($b | blobs) as $B | ($m | blobs) as $M | ($d | blobs) as $D
+                    | ((($B | keys) + ($D | keys)) | unique)
+                    | [ .[] | select($B[.] != $D[.]) ]
+                    | if all(. as $p | $M[$p] == $D[$p]) then "nothing" else "content" end
+                  end')
+              [ "$verdict" = "nothing" ] && adds_nothing=true
             fi
           fi
 

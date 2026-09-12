@@ -43,12 +43,22 @@ commit on `deps` and the workflow resets nothing and turns red. The single
 exception is a commit that is provably `main`'s own amended-away tip (detected
 via `github.event.before` on the force-push), which is debris, not work.
 
-Every state the two branches can be in is handled. *Adds content* below means
-`deps`'s tip commit points at a different tree than the commit the two branches
-split from. It is not "the compare endpoint reported changed files", which is
-cached and wrong just after a merge, and it is not "`deps` differs from the tip
-of `main`", which stops being the same question the moment `main` moves on —
-and a push to `main` is what triggers this workflow:
+Every state the two branches can be in is handled. *Adds content* below is one
+precise question: of the paths `deps` changed relative to the commit the two
+branches split from, is there one where `main` does not already hold `deps`'s
+content? It is answered by comparing blob SHAs in three trees — the split point,
+`main`'s tip and `deps`'s tip — because a tree is addressed by its own SHA and
+cannot be read stale.
+
+Two simpler tests were tried first and both are wrong. *"The compare endpoint
+reported changed files"* is cached and answers from before a merge that has
+already landed. *"`deps`'s tree differs from `main`'s tip"* is true the moment
+`main` carries anything `deps` never had, and *"`deps`'s tree differs from the
+split point"* is true the moment `deps` carries a bump — including one `main`
+has since taken by squash merge, which is exactly what a completed promotion
+leaves behind. This repository is where the third of those was caught: ten
+updates were promoted and merged, `main` had also taken the workflow upgrade
+itself, and the next run opened a second promotion for the same ten:
 
 | `main` vs `deps` | Cause | Action |
 |---|---|---|
