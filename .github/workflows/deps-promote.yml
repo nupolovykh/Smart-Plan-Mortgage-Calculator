@@ -145,6 +145,24 @@ jobs:
                     | if all(. as $p | $M[$p] == $D[$p]) then "nothing" else "content" end
                   end')
               [ "$verdict" = "nothing" ] && adds_nothing=true
+              # The inputs, so a wrong verdict can be read off the log instead of
+              # reasoned about. Three tree SHAs and the paths that decided it.
+              echo "::group::branch comparison inputs"
+              echo "  split point ${merge_base} tree ${split_tree}"
+              echo "  ${BASE_BRANCH}  ${base_sha} tree ${main_tree}"
+              echo "  ${DEPS_BRANCH}  ${deps_sha} tree ${deps_tree}"
+              echo "  verdict: ${verdict}"
+              jq -n \
+                --argjson b "$(tree_json "$split_tree")" \
+                --argjson m "$(tree_json "$main_tree")" \
+                --argjson d "$(tree_json "$deps_tree")" '
+                  def blobs: [ .tree[] | select(.type == "blob") | {key: .path, value: .sha} ] | from_entries;
+                  ($b | blobs) as $B | ($m | blobs) as $M | ($d | blobs) as $D
+                  | ((($B | keys) + ($D | keys)) | unique)
+                  | [ .[] | select($B[.] != $D[.]) ]
+                  | .[] as $p
+                  | "  changed by deps: \($p)  split=\($B[$p] // "-" | .[0:8])  main=\($M[$p] // "-" | .[0:8])  deps=\($D[$p] // "-" | .[0:8])"' -r
+              echo "::endgroup::"
             fi
           fi
 
