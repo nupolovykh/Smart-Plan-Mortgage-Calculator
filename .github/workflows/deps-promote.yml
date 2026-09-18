@@ -1,0 +1,474 @@
+name: Dependency promotion
+
+# Carries what collected on `deps` back into main, as one pull request a human
+# merges — and puts `deps` back where it belongs afterwards.
+#
+# WHY THERE IS NO main -> deps MERGE HERE
+#
+# The obvious design keeps the branch level by merging main into it. That design
+# fails, and fails predictably: `deps` exists to change lockfiles, main changes
+# lockfiles too, and lockfiles conflict on almost every line. GitHub's merge API
+# answers 409, no token changes that, and a human has to sit down and resolve a
+# generated file by hand — on an archive nobody is watching.
+#
+# `deps` does not need merging, because it holds nothing worth keeping. Every
+# commit on it is a bot commit, and every bot commit is REGENERABLE: reset the
+# branch and Dependabot re-reads the manifest, sees the old versions and raises
+# the same bumps again on its next scan. So the branch is disposable by
+# construction, and the way to realign it is to throw it away and re-cut it from
+# main. No merge, no conflict, no human.
+#
+# That property is only true while `deps` really is bot-only. The guard below is
+# what keeps it true: a single human commit on that branch and this workflow
+# refuses to reset anything and says so, rather than destroying work.
+#
+# Like the auto-merge gate, this workflow never checks out. Everything is API
+# calls, so there is no working tree and no on-disk script for a push to `deps`
+# to poison, and no `ref:` pin is needed to make that safe.
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+  # A push to main is the amend case and the merged-promotion case: both need
+  # `deps` realigned. A merge into `deps` is not a push to main, so the
+  # auto-merge gate dispatches this workflow directly instead.
+  push:
+    branches: [main]
+
+# Governs GITHUB_TOKEN, which this job does not use — every call authenticates
+# as DEPS_PAT, whose own scopes are the real limit. Kept at zero so the unused
+# token grants nothing.
+permissions: {}
+
+concurrency:
+  group: dependency-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.DEPS_PAT }}
+      REPO: ${{ github.repository }}
+      DEPS_BRANCH: deps
+      BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+      # On a force-push to main — which is what `git commit --amend` produces —
+      # this is the tip main had before the rewrite. It is the only reliable way
+      # to tell "this human commit on deps is main's own amended-away history"
+      # from "somebody committed to deps by hand". Empty on every other event.
+      FORCED_BEFORE: ${{ (github.event_name == 'push' && github.event.forced) && github.event.before || '' }}
+    steps:
+      - name: Promote, or realign the branch
+        run: |
+          set -euo pipefail
+
+          # A blocked promotion has to reach a human, but this workflow runs
+          # against the default branch, so failing it pins a red check to whatever
+          # commit that branch points at — permanently, because a check run cannot
+          # be deleted. The report goes into the same issue the gate uses, so one
+          # thread covers the whole pipeline, and it closes itself when a run gets
+          # through. If issues are unavailable the run still fails: silence is the
+          # one outcome this must never produce.
+          marker="<!-- dependency-queue-stuck -->"
+
+          find_report() {
+            local issues
+            # The marker is matched inside jq, against the body as one value. Reading
+            # the listing line by line does not work: an issue body is multi-line, the
+            # marker sits on a line of its own, and the first field of *that* line is
+            # the marker itself rather than a number — which then goes into the request
+            # path and comes back 404.
+            gh api --paginate "repos/$REPO/issues?state=open&per_page=100" \
+              --jq ".[] | select(.pull_request | not) | select((.body // \"\") | contains(\"$marker\")) | .number" \
+              2>/dev/null | head -1
+          }
+
+          report_blocked() {
+            local detail="$1" issue body
+            issue=$(find_report)
+            body="The dependency promotion is blocked.
+
+          ${detail}
+
+          Run: ${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}
+
+          ${marker}"
+            if [ -n "$issue" ]; then
+              gh api --method PATCH "repos/$REPO/issues/${issue}" -f "body=${body}" >/dev/null \
+                && { echo "::warning::Promotion blocked; updated issue #${issue}."; return 0; }
+            else
+              issue=$(gh api "repos/$REPO/issues" -f "title=Dependency updates are stuck" \
+                -f "body=${body}" --jq '.number' 2>/dev/null) \
+                && { echo "::warning::Promotion blocked; opened issue #${issue}."; return 0; }
+            fi
+            echo "::error::Promotion blocked and the report could not be filed."
+            return 1
+          }
+
+          owner="${REPO%%/*}"
+          title="Dependency updates: promote \`${DEPS_BRANCH}\` to \`${BASE_BRANCH}\`"
+
+          base_sha=$(gh api "repos/$REPO/git/ref/heads/${BASE_BRANCH}" --jq '.object.sha')
+
+          # Bootstrap. Also the recovery path if somebody deletes the branch.
+          if ! gh api "repos/$REPO/git/ref/heads/${DEPS_BRANCH}" >/dev/null 2>&1; then
+            gh api "repos/$REPO/git/refs" \
+              -f "ref=refs/heads/${DEPS_BRANCH}" -f "sha=${base_sha}" >/dev/null
+            echo "Created ${DEPS_BRANCH} at ${base_sha:0:7}. Dependabot will target it from its next scan."
+            exit 0
+          fi
+
+          find_open_pr() {
+            gh api "repos/$REPO/pulls?state=open&base=${BASE_BRANCH}&head=${owner}:${DEPS_BRANCH}" \
+              --jq '.[0].number // empty'
+          }
+
+          close_pr() {
+            local n="$1"
+            [ -z "$n" ] && return 0
+            gh api -X PATCH "repos/$REPO/pulls/${n}" -f "state=closed" >/dev/null
+            echo "Closed #${n} — nothing left to promote."
+          }
+
+          reset_deps() {
+            gh api -X PATCH "repos/$REPO/git/refs/heads/${DEPS_BRANCH}" \
+              -f "sha=${base_sha}" -F "force=true" >/dev/null
+            echo "Reset ${DEPS_BRANCH} to ${BASE_BRANCH} (${base_sha:0:7})."
+          }
+
+          compare=$(gh api "repos/$REPO/compare/${BASE_BRANCH}...${DEPS_BRANCH}")
+          status=$(jq -r '.status' <<<"$compare")
+          ahead_by=$(jq -r '.ahead_by' <<<"$compare")
+          number=$(find_open_pr)
+
+          # ahead_by counts commits, not content. What decides whether there is
+          # anything for a human to review is whether deps holds content that
+          # main does not, and that is a question about trees, not about the
+          # compare above — /compare is cached and can answer from before a merge
+          # that has already landed.
+          #
+          # Stated exactly: of the paths deps changed relative to the commit the
+          # two branches split from, does main already hold deps' content for
+          # every one of them? Neither shortcut answers that. "deps matches
+          # main's tip" is false the moment main carries anything deps never had.
+          # "deps matches the split point" is false the moment deps carries a
+          # bump — including one main has since taken by squash merge, which is
+          # what every completed promotion leaves behind. Both shortcuts were
+          # tried, and both opened a promotion for updates already on main.
+          #
+          # Blob SHAs come from the trees themselves. A tree is addressed by its
+          # own SHA, so reading it cannot be stale once the refs are current.
+          tree_of() { gh api "repos/$REPO/git/commits/$1" --jq '.tree.sha' 2>/dev/null || echo ""; }
+
+          # Written to files, not passed as arguments. A recursive tree listing
+          # of a repository with a few thousand files does not fit in argv, and
+          # --argjson fails the whole step with "Argument list too long" —
+          # measured on Webdev-labprojects-js-ts-react, eleven lab projects.
+          # --slurpfile reads from the file instead, so the document arrives as
+          # a one-element array and is referenced as $b[0].
+          trees=$(mktemp -d)
+          trap 'rm -rf "$trees"' EXIT
+          tree_json() {
+            gh api "repos/$REPO/git/trees/$1?recursive=1" >"$2" 2>/dev/null \
+              || echo '{"truncated":true,"tree":[]}' >"$2"
+          }
+
+          deps_sha=$(gh api "repos/$REPO/git/ref/heads/${DEPS_BRANCH}" --jq '.object.sha' 2>/dev/null || echo "")
+          merge_base=$(jq -r '.merge_base_commit.sha // empty' <<<"$compare")
+
+          adds_nothing=false
+          if [ -n "$deps_sha" ] && [ -n "$merge_base" ]; then
+            split_tree=$(tree_of "$merge_base")
+            main_tree=$(tree_of "$base_sha")
+            deps_tree=$(tree_of "$deps_sha")
+            if [ -n "$split_tree" ] && [ -n "$main_tree" ] && [ -n "$deps_tree" ]; then
+              tree_json "$split_tree" "$trees/split.json"
+              tree_json "$main_tree"  "$trees/main.json"
+              tree_json "$deps_tree" "$trees/deps.json"
+
+              # -r matters: without it jq prints a JSON string, quotes and all,
+              # and the comparison below never matches — which made every branch
+              # look like it still had something to promote, whatever the trees
+              # said. A truncated listing means the answer is unknown, so it
+              # counts as "adds content": that opens a promotion for a human
+              # rather than resetting a branch that might be holding something.
+              verdict=$(jq -n -r \
+                --slurpfile b "$trees/split.json" \
+                --slurpfile m "$trees/main.json" \
+                --slurpfile d "$trees/deps.json" '
+                  def blobs: [ .tree[] | select(.type == "blob") | {key: .path, value: .sha} ] | from_entries;
+                  if ($b[0].truncated or $m[0].truncated or $d[0].truncated) then "content"
+                  else
+                    ($b[0] | blobs) as $B | ($m[0] | blobs) as $M | ($d[0] | blobs) as $D
+                    | ((($B | keys) + ($D | keys)) | unique)
+                    | [ .[] | select($B[.] != $D[.]) ]
+                    | if all(. as $p | $M[$p] == $D[$p]) then "nothing" else "content" end
+                  end')
+              [ "$verdict" = "nothing" ] && adds_nothing=true
+
+              # The inputs, so a wrong verdict can be read off the log instead of
+              # reasoned about: three tree SHAs and the paths that decided it.
+              echo "::group::branch comparison inputs"
+              echo "  split point ${merge_base} tree ${split_tree}"
+              echo "  ${BASE_BRANCH}  ${base_sha} tree ${main_tree}"
+              echo "  ${DEPS_BRANCH}  ${deps_sha} tree ${deps_tree}"
+              echo "  verdict: ${verdict}"
+              jq -n -r \
+                --slurpfile b "$trees/split.json" \
+                --slurpfile m "$trees/main.json" \
+                --slurpfile d "$trees/deps.json" '
+                  def blobs: [ .tree[] | select(.type == "blob") | {key: .path, value: .sha} ] | from_entries;
+                  ($b[0] | blobs) as $B | ($m[0] | blobs) as $M | ($d[0] | blobs) as $D
+                  | ((($B | keys) + ($D | keys)) | unique)
+                  | [ .[] | select($B[.] != $D[.]) ]
+                  | .[] as $p
+                  | "  changed by deps: \($p)  split=\($B[$p] // "-" | .[0:8])  main=\($M[$p] // "-" | .[0:8])  deps=\($D[$p] // "-" | .[0:8])"'
+              echo "::endgroup::"
+            fi
+          fi
+
+          echo "${DEPS_BRANCH} is '${status}' relative to ${BASE_BRANCH}: ${ahead_by} commit(s), adds content: $([ "$adds_nothing" = true ] && echo no || echo yes)."
+
+          # Commits on deps that main does not have. Anything not written by a bot
+          # means the disposability assumption no longer holds.
+          #
+          # Merge commits are exempt. The only thing that creates one on this
+          # branch is the update-branch call below, which GitHub attributes to
+          # whoever owns DEPS_PAT — a human name on a commit no human wrote. Hand
+          # work arrives as an ordinary single-parent commit, so excluding merges
+          # keeps the guard pointed at what it is actually for.
+          bot_filter='select((.parents | length) < 2) | (.author.login // "") as $l | select($l != "dependabot[bot]" and $l != "github-actions[bot]")'
+          nonbot=$(jq -r "[ .commits[] | ${bot_filter} | \"\\(.sha[0:7]) \\(.commit.author.name): \\(.commit.message | split(\"\\n\")[0])\" ] | .[]" <<<"$compare")
+          nonbot_shas=$(jq -r "[ .commits[] | ${bot_filter} | .sha ] | .[]" <<<"$compare")
+
+          # Is every non-bot commit on deps simply main's own pre-amend history?
+          # If so the branch is not carrying anyone's work — it is holding the
+          # commits main just rewrote away — and re-cutting it is the repair, not
+          # a loss. Anything else and we refuse below.
+          amend_debris=false
+          if [ -n "$nonbot_shas" ] && [ -n "$FORCED_BEFORE" ]; then
+            amend_debris=true
+            for sha in $nonbot_shas; do
+              # compare(base=sha, head=old_tip): 'identical' or 'ahead' means sha
+              # was part of the history main had before the rewrite.
+              rel=$(gh api "repos/$REPO/compare/${sha}...${FORCED_BEFORE}" --jq '.status' 2>/dev/null || echo unknown)
+              case "$rel" in
+                identical|ahead) ;;
+                *) amend_debris=false ;;
+              esac
+            done
+          fi
+
+          case "$status" in
+            identical)
+              echo "Nothing to promote."
+              close_pr "$number"
+              exit 0
+              ;;
+
+            behind)
+              # main moved ahead and deps is an ancestor of it — the ordinary case
+              # after the promotion pull request is merged with a merge commit.
+              # force=false makes GitHub refuse anything that is not a
+              # fast-forward, which is the guard doing its job if the auto-merge
+              # gate landed something between the compare and this call.
+              if gh api -X PATCH "repos/$REPO/git/refs/heads/${DEPS_BRANCH}" \
+                   -f "sha=${base_sha}" -F "force=false" >/dev/null 2>&1; then
+                echo "Fast-forwarded ${DEPS_BRANCH} to ${base_sha:0:7}."
+              else
+                echo "::notice::${DEPS_BRANCH} moved while this run was reading it; the next run realigns it."
+              fi
+              close_pr "$number"
+              exit 0
+              ;;
+
+            diverged)
+              if [ -n "$nonbot" ] && [ "$amend_debris" = true ]; then
+                # main was amended. The "human" commits stranded here are the tip
+                # main itself just replaced, so nothing of anyone's is on this
+                # branch. Re-cut it; the bot commits it also held come back on
+                # Dependabot's next scan.
+                echo "::notice::${BASE_BRANCH} was amended; ${DEPS_BRANCH} still points at the replaced history."
+                jq -r '.commits[] | "  dropped: " + (.commit.message | split("\n")[0])' <<<"$compare"
+                reset_deps
+                close_pr "$number"
+                exit 0
+              fi
+
+              if [ -n "$nonbot" ]; then
+                echo "::error::${DEPS_BRANCH} carries commits that are not from a bot, so it is not safe to reset."
+                echo "$nonbot" | sed 's/^/  /'
+                echo ""
+                echo "Two things cause this:"
+                echo "  1. Somebody committed to ${DEPS_BRANCH} by hand. That branch is bot-only;"
+                echo "     move the work to a feature branch off ${BASE_BRANCH}."
+                echo "  2. ${BASE_BRANCH} was amended, which strands its previous tip here."
+                echo "     Nothing on ${DEPS_BRANCH} is worth keeping — Dependabot re-raises every"
+                echo "     bump on its next scan — so realign it and let the queue refill:"
+                echo ""
+                echo "       git fetch origin ${BASE_BRANCH}"
+                echo "       git push --force origin origin/${BASE_BRANCH}:${DEPS_BRANCH}"
+                {
+                  echo "### Dependency promotion blocked"
+                  echo
+                  echo "\`${DEPS_BRANCH}\` holds commits that are not from a bot; it was not reset."
+                  echo '```'
+                  echo "$nonbot"
+                  echo '```'
+                } >>"$GITHUB_STEP_SUMMARY"
+                report_blocked "\`${DEPS_BRANCH}\` carries commits that are not from a bot, so it was not reset.
+
+          Nothing on \`${DEPS_BRANCH}\` is worth keeping — Dependabot re-raises every bump on its
+          next scan — so realign it and let the queue refill:
+
+          \`\`\`
+          git fetch origin ${BASE_BRANCH}
+          git push --force origin origin/${BASE_BRANCH}:${DEPS_BRANCH}
+          \`\`\`"
+                exit 0
+              fi
+
+              if [ "$adds_nothing" = true ]; then
+                # Either the promotion was squash- or rebase-merged, so main carries
+                # the same tree under a different commit, or main simply moved on
+                # while deps held nothing of its own. Routine; realign quietly.
+                echo "${BASE_BRANCH} already contains everything on ${DEPS_BRANCH}."
+                reset_deps
+                close_pr "$number"
+                exit 0
+              fi
+
+              # Everything reaching here is bot-only and carries real file changes,
+              # which means it is not a rewrite: a rewrite strands main's own
+              # previous tip on deps, and that tip is a human commit caught by the
+              # two branches above. So this is the ordinary case — main moved on
+              # while deps held unpromoted bumps.
+              #
+              # Dropping them here was wrong. It meant the update queue restarted
+              # from nothing on every single commit to main, and would do the same
+              # on every security fix once those are enabled. The bumps are kept
+              # instead, and main is brought into deps.
+              if [ -n "$FORCED_BEFORE" ]; then
+                # A genuine force-push whose stranded commits were all bot-authored:
+                # nothing identifies what main replaced, so re-cutting is the only
+                # safe repair. Dependabot raises the bumps again on its next scan.
+                echo "::warning::${BASE_BRANCH} was force-pushed while ${DEPS_BRANCH} held ${ahead_by} bump(s)."
+                echo "Re-cutting the branch; Dependabot re-raises them on its next scan."
+                jq -r '.commits[] | "  dropped: " + (.commit.message | split("\n")[0])' <<<"$compare"
+                reset_deps
+                close_pr "$number"
+                exit 0
+              fi
+
+              if [ -n "$number" ]; then
+                # A server-side merge of the base into the head. It has to go
+                # through the pull request, because that is the only way to merge
+                # without a working tree, and this workflow deliberately has none.
+                if gh api --method PUT "repos/$REPO/pulls/${number}/update-branch" >/dev/null 2>&1; then
+                  echo "Brought ${BASE_BRANCH} into ${DEPS_BRANCH} through #${number}; the ${ahead_by} bump(s) are intact."
+                  exit 0
+                fi
+                echo "::warning::Could not bring ${BASE_BRANCH} into ${DEPS_BRANCH} — a conflict, or the write was refused."
+                echo "Re-cutting the branch; Dependabot re-raises every bump on its next scan."
+                jq -r '.commits[] | "  dropped: " + (.commit.message | split("\n")[0])' <<<"$compare"
+                reset_deps
+                close_pr "$number"
+                exit 0
+              fi
+
+              # No promotion open yet, so there is nothing to update-branch
+              # through. Fall through and open it against main as it stands.
+              echo "${BASE_BRANCH} moved on; opening the promotion for the ${ahead_by} bump(s) as they stand."
+              ;;
+
+            ahead) ;;
+
+            *)
+              report_blocked "The comparison between \`${BASE_BRANCH}\` and \`${DEPS_BRANCH}\` returned an unexpected status: \`${status}\`."
+              exit 0
+              ;;
+          esac
+
+          # status == ahead: deps sits on top of main with updates to promote.
+          if [ "$adds_nothing" = true ]; then
+            # Ahead in commits, identical in content. This is what one full cycle
+            # leaves behind: the bump is on main, and what remains on deps is the
+            # update-branch merge that carried main into it. Resetting is not
+            # housekeeping — without it those merges accumulate one per cycle and
+            # the branch stops being the disposable, bot-only thing the rest of
+            # this workflow assumes it is.
+            echo "${ahead_by} commit(s) ahead but the content is identical; re-cutting the branch."
+            # Listed, not refused. The refusal in the diverged branch exists to
+            # protect content main does not have; here the trees match, so main
+            # already holds every byte of the result and nothing is lost.
+            if [ -n "$nonbot" ]; then
+              echo "::warning::Dropping non-bot commits whose content ${BASE_BRANCH} already has:"
+              echo "$nonbot" | sed 's/^/  /'
+            fi
+            reset_deps
+            close_pr "$number"
+            exit 0
+          fi
+
+          if [ -n "$nonbot" ]; then
+            echo "::warning::${DEPS_BRANCH} carries non-bot commits. It is meant to be bot-only:"
+            echo "$nonbot" | sed 's/^/  /'
+          fi
+
+          commits=$(jq -r '.commits[] | "- " + (.commit.message | split("\n")[0])' <<<"$compare")
+
+          body="Collected dependency updates from \`${DEPS_BRANCH}\`.
+
+          Each commit below merged itself only after CI passed on that exact commit.
+          This pull request runs CI once more on the combined result: the updates are
+          green in isolation, the promotion proves they are green together.
+
+          Merge it with squash, rebase or a merge commit — all three are handled. The
+          next run of this workflow re-cuts \`${DEPS_BRANCH}\` from \`${BASE_BRANCH}\`
+          afterwards, so the branch never accumulates history and never conflicts.
+
+          ### ${ahead_by} update(s)
+
+          ${commits}
+
+          <!-- opened and refreshed by .github/workflows/deps-promote.yml -->"
+
+          if [ -n "$number" ]; then
+            gh api -X PATCH "repos/$REPO/pulls/${number}" -f "body=${body}" >/dev/null
+            echo "Refreshed #${number} (${ahead_by} updates)."
+            exit 0
+          fi
+
+          if ! output=$(gh api "repos/$REPO/pulls" \
+              -f "title=${title}" -f "head=${DEPS_BRANCH}" \
+              -f "base=${BASE_BRANCH}" -f "body=${body}" 2>&1); then
+            echo "$output"
+            case "$output" in
+              *"not permitted to create or approve pull requests"*)
+                echo "::error::Actions may not open pull requests in this repository."
+                echo "Settings -> Actions -> General -> Workflow permissions ->"
+                echo "tick 'Allow GitHub Actions to create and approve pull requests'."
+                echo "Until then ${ahead_by} update(s) sit on ${DEPS_BRANCH} with no way out."
+                ;;
+              *)
+                echo "::error::Could not open the promotion pull request."
+                ;;
+            esac
+            report_blocked "The promotion pull request could not be opened, so ${ahead_by} update(s) sit on \`${DEPS_BRANCH}\` with no way out.
+
+          \`\`\`
+          ${output}
+          \`\`\`"
+            exit 0
+          fi
+
+          new_number=$(jq -r '.number' <<<"$output")
+          echo "Opened #${new_number} (${ahead_by} updates)."
+
+          # No CI dispatch here. It was necessary while GITHUB_TOKEN opened this
+          # pull request, because a pull request created by that token starts no
+          # workflow run and the promotion carried no checks at all. DEPS_PAT
+          # opens it from a real account, so the pull_request run happens by
+          # itself and a dispatch only duplicates it.

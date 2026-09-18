@@ -1,0 +1,142 @@
+name: Security audit
+
+# Deliberately NOT part of CI.
+#
+# An audit answers a question about the global advisory database, not about the
+# commit under test. A newly published advisory turns every open pull request red
+# at once — including the very bump that fixes it — and in a repository where
+# green CI is what merges updates, that stops the updates from landing exactly
+# when they matter most. Here it reports on a schedule and blocks nothing.
+#
+# It is also the one workflow that speaks about `main` itself. Dependabot's
+# security updates ignore `target-branch` and never enter the `deps` flow, so
+# this report is the only place the whole picture is written down.
+#
+# Both ecosystems share one job on purpose. Two jobs would race for the single
+# report issue: each would read the issue list before the other had written, and
+# the loser would file a duplicate or close the issue the winner had just opened.
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+# GITHUB_TOKEN is enough here: the only thing this writes is the report issue.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+
+      - run: npm ci
+        working-directory: frontend
+
+      - run: composer install --no-interaction --prefer-dist
+        working-directory: backend
+
+      - name: Audit both ecosystems
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Explicit: the step's shell is `bash -e`, and this script handles its
+          # own failures rather than dying at the first one.
+          set +e
+          set -uo pipefail
+          affected=0
+          details=""
+
+          # `if` context, not a bare assignment: both auditors exit non-zero
+          # precisely when they find something, and under `bash -e` a bare
+          # assignment would kill the script on the first finding, before
+          # anything could be reported.
+          echo "::group::npm audit (high and above)"
+          if npm_report=$(cd frontend && npm audit --audit-level=high 2>&1); then
+            npm_rc=0
+          else
+            npm_rc=$?
+          fi
+          printf '%s\n' "$npm_report"
+          echo "::endgroup::"
+
+          echo "::group::composer audit"
+          if composer_report=$(cd backend && composer audit --no-interaction 2>&1); then
+            composer_rc=0
+          else
+            composer_rc=$?
+          fi
+          printf '%s\n' "$composer_report"
+          echo "::endgroup::"
+
+          if [ "$npm_rc" -ne 0 ]; then
+            affected=$((affected + 1))
+            line=$(grep -E '[0-9]+ (vulnerabilit|high|critical)' <<<"$npm_report" | tail -1)
+            details="${details}
+          - \`frontend\` (npm) — ${line:-see the run log}"
+            echo "::warning::advisories at high or above in frontend"
+          fi
+
+          if [ "$composer_rc" -ne 0 ]; then
+            affected=$((affected + 1))
+            line=$(grep -E 'Found [0-9]+' <<<"$composer_report" | tail -1)
+            details="${details}
+          - \`backend\` (composer) — ${line:-see the run log}"
+            echo "::warning::advisories in backend"
+          fi
+
+          # The finding is an issue, not a failed run: this workflow runs on a
+          # schedule against the default branch, so a failure would pin a red
+          # check to whatever commit that branch points at — permanently, since a
+          # check run cannot be deleted and the mark outlives the fix.
+          marker="<!-- vulnerable-dependencies -->"
+          # The marker is matched inside jq, against the body as one value. Reading
+          # the listing line by line does not work: an issue body is multi-line, the
+          # marker sits on a line of its own, and the first field of *that* line is
+          # the marker itself rather than a number — which then goes into the request
+          # path and comes back 404.
+          issue=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
+            --jq ".[] | select(.pull_request | not) | select((.body // \"\") | contains(\"$marker\")) | .number" \
+            2>/dev/null | head -1)
+
+          if [ "$affected" -gt 0 ]; then
+            detail="${affected} of 2 ecosystems carry advisories."
+            body="${detail}
+          ${details}
+
+          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          ${marker}"
+            if [ -n "$issue" ]; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/${issue}" -f "body=${body}" >/dev/null \
+                && { echo "::warning::${detail} Updated issue #${issue}."; exit 0; }
+            else
+              issue=$(gh api "repos/$GITHUB_REPOSITORY/issues" -f "title=Vulnerable dependencies" \
+                -f "body=${body}" --jq '.number' 2>/dev/null) \
+                && { echo "::warning::${detail} Opened issue #${issue}."; exit 0; }
+            fi
+            echo "::error::${detail} The report could not be filed, so this run fails instead."
+            exit 1
+          fi
+
+          echo "Nothing at high or above in either ecosystem."
+          if [ -n "$issue" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/${issue}" \
+              -f state=closed -f state_reason=completed >/dev/null 2>&1 || true
+            echo "Closed issue #${issue}."
+          fi

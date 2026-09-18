@@ -63,5 +63,15 @@ Single ~430-line component holding all state, all three domain interfaces (`Area
 ### Database schema (`backend/database/init.sql`)
 Four tables: `promos` (percentage or fixed-`rub` discount), `areas` (plots, each optionally tied to a promo), `payment_methods` (bank + rate), `requests` (submitted applications, FKs to the other three). No indexes beyond primary keys.
 
+## Dependency updates and branches
+
+`main` is amend-only (the archive's history stays flat); `deps` is bot-only and
+disposable — it is re-cut from `main` after every promotion, never merged into.
+Dependabot targets `deps`, each update merges itself once CI is green on that
+exact commit, and the collected result reaches `main` through one promotion pull
+request a human merges. Do not commit to `deps` by hand: `deps-promote.yml`
+turns the run red when it finds a non-bot commit there. See
+`docs/dependency-updates.md` before changing anything under `.github/`.
+
 ## Known gaps / backlog
 `tasks/01-improvement-tasks.md` contains a prioritized list of 20 improvements; Task 1 (API input validation/sanitization hardening) is already implemented — see the status note at the top of that task. The remaining 19 are not yet done (splitting `App.tsx`, frontend tests, error-handling middleware, migrations, rate limiting, PHPStan, pagination, etc.). Check the file before proposing large structural changes — the desired direction may already be scoped out there.
