@@ -1,7 +1,7 @@
 {
     "name": "phpcalculator",
     "remoteUser": "vscode",
-    "image": "mcr.microsoft.com/devcontainers/php:8.3",
+    "image": "mcr.microsoft.com/devcontainers/php:8.4",
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "customizations": {
         "vscode": {
