@@ -85,14 +85,19 @@ poison, so a job holding `contents: write` can never be made to execute code
 that came from the branch it writes to. This is why no `ref:` pin is needed:
 the class of problem it defends against does not exist here.
 
-## Why updates are ungrouped
+## How updates are grouped
 
-Grouping trades away the property that matters most when nobody is watching.
-One pull request per bump means a bump that breaks the build blocks only itself
-and the rest still land. Inside a group, one bad member holds back every good
-one until a human splits it out. Dependabot rebases the losers of a lockfile
-race by itself, so the queue drains without help — measured on this repository:
-nine updates, two days, zero left open.
+Monthly, and per directory: one pull request carrying every minor and patch
+bump, and one pull request per major. Minor and patch bumps rarely break
+anything, so grouping them costs little and turns a weekly stream of single-bump
+pull requests into one a month. Majors stay separate, so a major that breaks the
+build blocks only itself while the group still lands.
+
+Packages that have to move together get a group of their own across all update
+types, so a major of one never arrives without the others: `react` with
+`react-dom` and their `@types`, `eslint` with `@eslint/*`, its plugins and
+`typescript-eslint`, and `vite` with `@vitejs/*`. A package goes to the first
+group that matches it, so family groups are listed before `minor-and-patch`.
 
 ## Why `npm audit` is not in CI
 
@@ -100,31 +105,39 @@ It answers a question about the global advisory database, not about the commit
 under test. A newly published advisory turns every open pull request red at once
 — including the bump that fixes it — and in a repository where green CI is what
 merges updates, that stops updates from landing exactly when they matter most.
-It runs weekly in `security-audit.yml` and blocks nothing.
+It runs weekly in `security-audit.yml`, blocks nothing, and writes its findings
+into the run's summary and warnings rather than an issue.
 
 ## How silence is broken
 
 An unattended repository's real failure mode is not a bad merge, it is a queue
-that quietly stops moving. The only notification that reaches anyone is a failed
-workflow run, which GitHub emails to the repository owner. So:
+that quietly stops moving. Failing the run is not an option for that: these
+workflows run against the default branch, so a red run pins a check to whatever
+commit `main` points at, permanently. Each problem goes into an issue that its
+own workflow opens and closes:
 
-- the weekly sweep **exits non-zero** when a Dependabot pull request has been
-  open and unmerged for 14 days, or when one passed CI and the merge was refused
-  (that one is the automation's own fault and fails immediately);
-- `deps-promote.yml` exits non-zero when the branch contract is violated;
-- `security-audit.yml` turns red on a new high-severity advisory.
+| Issue | Opened by | Opened when | Closed when |
+|---|---|---|---|
+| *Dependency updates are stuck* | the weekly sweep | a Dependabot pull request has sat unmerged for 14 days, or passed CI and the merge was refused | the first sweep that finds the queue moving |
+| *Dependency promotion is blocked* | `deps-promote.yml` | the branch contract is violated, or the promotion cannot be opened | the first promotion run that is not blocked |
 
-A green run genuinely means nothing needs attention.
+The two use different markers on purpose. They used to share one, and the sweep
+kept closing an issue the promotion was still blocked on, which the next
+promotion run reopened as a new issue — every day.
+
+A run turns red only when its issue cannot be filed. The issues are opened
+through `DEPS_PAT`, so under the owner's account: GitHub does not notify you of
+your own actions, and they show up in the Issues tab rather than in the inbox.
 
 ## Known limits
 
-- **Security updates never reach `deps`.** `target-branch` is a version-update
+- **Security updates are switched off.** `target-branch` is a version-update
   option; a fix raised from a Dependabot alert goes to the default branch
-  whatever `dependabot.yml` says. Nothing in a repository can redirect it. The
-  sweep lists those pull requests and turns red once they are 14 days old, so
-  they cannot be invisible — but a human merges them. This is also why the
-  branch is called `deps` and not `security`: security updates are the one kind
-  it does not carry.
+  whatever `dependabot.yml` says, and nothing in a repository can redirect it.
+  Left on, they would put bot commits on `main` past the promotion, so they are
+  disabled in the repository settings. Advisories still show in the Security tab
+  and in `security-audit.yml`'s summary, and the monthly version updates carry
+  most fixes through `deps` anyway.
 - **The gate is only as good as CI.** There are no frontend tests here, so
   `CI Pipeline` green on a React or Vite bump means "it type-checks, lints and
   builds", not "the calculator still computes the right payment" — and the
@@ -189,9 +202,9 @@ Not in the repository, so listed here:
    Actions to create and approve pull requests* — ticked. Without it the
    promotion pull request cannot be opened and the step fails with 403.
 3. **Settings → General → Pull Requests**: squash merging enabled.
-4. **Settings → Advanced Security → Dependabot alerts**: enabled. Without it no
-   advisory is ever detected, and the sweep's check for a security update
-   stranded on `main` can never fire, because no such pull request is raised.
+4. **Settings → Advanced Security → Dependabot alerts**: enabled, so advisories
+   show in the Security tab. **Dependabot security updates**: disabled — they
+   target `main` directly and would bypass `deps`; see *Known limits*.
 5. **Branch protection on `main`: require a pull request, and tick *Do not allow
    bypassing the above settings*.** The second half is what actually stops a
    direct push by an administrator. Leave *Require approvals* unticked — its
