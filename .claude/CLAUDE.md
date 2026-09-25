@@ -70,7 +70,8 @@ disposable — it is re-cut from `main` after every promotion, never merged into
 Dependabot targets `deps`, each update merges itself once CI is green on that
 exact commit, and the collected result reaches `main` through one promotion pull
 request a human merges. Do not commit to `deps` by hand: `deps-promote.yml`
-turns the run red when it finds a non-bot commit there. See
+refuses to reset the branch when it finds a non-bot commit there and opens a
+*Dependency promotion is blocked* issue. See
 `docs/dependency-updates.md` before changing anything under `.github/`.
 
 ## Known gaps / backlog

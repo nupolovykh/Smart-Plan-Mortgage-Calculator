@@ -8,23 +8,22 @@ name: Security audit
 # green CI is what merges updates, that stops the updates from landing exactly
 # when they matter most. Here it reports on a schedule and blocks nothing.
 #
-# It is also the one workflow that speaks about `main` itself. Dependabot's
-# security updates ignore `target-branch` and never enter the `deps` flow, so
-# this report is the only place the whole picture is written down.
+# It is also the one workflow that speaks about `main` itself: Dependabot's
+# security updates are switched off in this repository, so this report is the
+# only place the whole picture is written down.
 #
-# Both ecosystems share one job on purpose. Two jobs would race for the single
-# report issue: each would read the issue list before the other had written, and
-# the loser would file a duplicate or close the issue the winner had just opened.
+# The report is the run's summary and its warnings, not an issue. An issue stays
+# open until every advisory is fixed, which for coursework may be never, and it
+# is one more thing a human has to close. The summary is on the Actions tab of
+# every run, and a finding never fails the run.
 
 on:
   schedule:
     - cron: "41 5 * * 1"
   workflow_dispatch:
 
-# GITHUB_TOKEN is enough here: the only thing this writes is the report issue.
 permissions:
   contents: read
-  issues: write
 
 jobs:
   audit:
@@ -52,8 +51,6 @@ jobs:
         working-directory: backend
 
       - name: Audit both ecosystems
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Explicit: the step's shell is `bash -e`, and this script handles its
           # own failures rather than dying at the first one.
@@ -100,43 +97,20 @@ jobs:
             echo "::warning::advisories in backend"
           fi
 
-          # The finding is an issue, not a failed run: this workflow runs on a
-          # schedule against the default branch, so a failure would pin a red
-          # check to whatever commit that branch points at — permanently, since a
-          # check run cannot be deleted and the mark outlives the fix.
-          marker="<!-- vulnerable-dependencies -->"
-          # The marker is matched inside jq, against the body as one value. Reading
-          # the listing line by line does not work: an issue body is multi-line, the
-          # marker sits on a line of its own, and the first field of *that* line is
-          # the marker itself rather than a number — which then goes into the request
-          # path and comes back 404.
-          issue=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
-            --jq ".[] | select(.pull_request | not) | select((.body // \"\") | contains(\"$marker\")) | .number" \
-            2>/dev/null | head -1)
-
+          # A finding never fails the run: this workflow runs on a schedule
+          # against the default branch, so a failure would pin a red check to
+          # whatever commit that branch points at — permanently, since a check run
+          # cannot be deleted and the mark outlives the fix.
           if [ "$affected" -gt 0 ]; then
             detail="${affected} of 2 ecosystems carry advisories."
-            body="${detail}
-          ${details}
-
-          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-
-          ${marker}"
-            if [ -n "$issue" ]; then
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/${issue}" -f "body=${body}" >/dev/null \
-                && { echo "::warning::${detail} Updated issue #${issue}."; exit 0; }
-            else
-              issue=$(gh api "repos/$GITHUB_REPOSITORY/issues" -f "title=Vulnerable dependencies" \
-                -f "body=${body}" --jq '.number' 2>/dev/null) \
-                && { echo "::warning::${detail} Opened issue #${issue}."; exit 0; }
-            fi
-            echo "::error::${detail} The report could not be filed, so this run fails instead."
-            exit 1
+          else
+            detail="Nothing at high or above in either ecosystem."
           fi
+          echo "$detail"
 
-          echo "Nothing at high or above in either ecosystem."
-          if [ -n "$issue" ]; then
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/${issue}" \
-              -f state=closed -f state_reason=completed >/dev/null 2>&1 || true
-            echo "Closed issue #${issue}."
-          fi
+          {
+            echo "### Security audit"
+            echo
+            echo "${detail}"
+            if [ -n "${details}" ]; then printf '%s\n' "${details}"; fi
+          } >>"$GITHUB_STEP_SUMMARY"

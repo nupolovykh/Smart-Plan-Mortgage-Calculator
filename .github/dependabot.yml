@@ -2,55 +2,70 @@
 # once CI is green on that exact commit; the collected result reaches main only
 # through one promotion pull request that a human merges.
 #
-# Deliberately UNGROUPED. Grouping trades away the property that matters most on
-# an unattended archive: with one pull request per bump, a bump that breaks the
-# build blocks only itself and the rest still land. Inside a group, one bad
-# member holds back every good one, and nobody is watching to split it out.
-# Dependabot rebases the losers of a lockfile race on its own, so the queue
-# drains without help — measured here, not assumed: nine updates, two days, zero
-# left open.
+# Monthly, one pull request per directory for every minor and patch bump, and
+# one pull request per major. Minor and patch bumps rarely break anything, so
+# grouping them costs little and cuts the noise to one pull request a month.
+# Majors stay separate, so a major that breaks the build blocks only itself.
 #
-# 99 means "no limit". There is nothing to throttle: every update lands on `deps`
-# and never on main, and one that fails CI simply stays an open pull request
-# against that branch, where it blocks nothing. Capping the queue only starves it
-# — a permanently red bump would hold a slot for good, and the rest of the
-# updates would wait behind a number instead of behind a real problem.
+# Packages that must move together get their own group across all update
+# types, so a major of one never arrives without the others: React with its
+# DOM renderer and type packages, ESLint with its plugins and typescript-eslint,
+# Vite with its plugins. A package matches the first group that lists it.
 #
-# The key cannot be dropped to mean "unlimited": omitting it applies Dependabot's
-# default of 5, and 0 switches version updates off altogether.
+# 99 means "no limit". Every update lands on `deps`, where a red one blocks
+# nothing. The key cannot be dropped to mean "unlimited": omitting it applies
+# Dependabot's default of 5, and 0 switches version updates off altogether.
 #
-# Weekly, not daily: nothing here is urgent enough to justify seven times the
-# noise. Security advisories are the exception and they do not obey this file —
-# see docs/dependency-updates.md.
+# Dependabot security updates are switched off for this repository: they always
+# target main and would bypass `deps`. security-audit.yml reports advisories
+# instead — see docs/dependency-updates.md.
 version: 2
 
 updates:
   - package-ecosystem: "composer"
     directory: "/backend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     target-branch: "deps"
     open-pull-requests-limit: 99
     labels: ["dependencies"]
     commit-message:
       prefix: "build(deps)"
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     target-branch: "deps"
     open-pull-requests-limit: 99
     labels: ["dependencies"]
     commit-message:
       prefix: "build(deps)"
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      eslint:
+        patterns: ["eslint", "@eslint/*", "eslint-plugin-*", "typescript-eslint"]
+      vite:
+        patterns: ["vite", "@vitejs/*"]
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     target-branch: "deps"
     open-pull-requests-limit: 99
     labels: ["dependencies"]
     commit-message:
       prefix: "ci(actions)"
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
