@@ -10,7 +10,9 @@
 # Packages that must move together get their own group across all update
 # types, so a major of one never arrives without the others: React with its
 # DOM renderer and type packages, ESLint with its plugins and typescript-eslint,
-# Vite with its plugins. A package matches the first group that lists it.
+# Vite with its plugins. minor-and-patch excludes the families' patterns:
+# without that, one scan could raise the same line in two groups, and whichever
+# pull request merged second would conflict.
 #
 # 99 means "no limit". Every update lands on `deps`, where a red one blocks
 # nothing. The key cannot be dropped to mean "unlimited": omitting it applies
@@ -54,6 +56,7 @@ updates:
         patterns: ["vite", "@vitejs/*"]
       minor-and-patch:
         patterns: ["*"]
+        exclude-patterns: ["react", "react-dom", "@types/react", "@types/react-dom", "eslint", "@eslint/*", "eslint-plugin-*", "typescript-eslint", "vite", "@vitejs/*"]
         update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"

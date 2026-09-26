@@ -96,8 +96,10 @@ build blocks only itself while the group still lands.
 Packages that have to move together get a group of their own across all update
 types, so a major of one never arrives without the others: `react` with
 `react-dom` and their `@types`, `eslint` with `@eslint/*`, its plugins and
-`typescript-eslint`, and `vite` with `@vitejs/*`. A package goes to the first
-group that matches it, so family groups are listed before `minor-and-patch`.
+`typescript-eslint`, and `vite` with `@vitejs/*`. `minor-and-patch` excludes
+those patterns, so two groups never edit the same line in one scan — two pull
+requests of one scan touching the same line would conflict, and a conflicting
+pull request gets no CI run.
 
 ## Why `npm audit` is not in CI
 
